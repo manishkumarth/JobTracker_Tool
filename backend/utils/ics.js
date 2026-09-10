@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 export const generateICS = (events, calendarName = "Job Application Calendar") => {
   const now = new Date();
   const dtstamp = now.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";

@@ -1,5 +1,3 @@
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-
 const SKILL_KEYWORDS = [
   "javascript", "typescript", "python", "java", "c++", "c#", "go", "rust", "ruby", "php",
   "react", "vue", "angular", "svelte", "next.js", "nuxt", "node.js", "express", "django",
@@ -30,8 +28,11 @@ const EDUCATION_KEYWORDS = [
 
 export const parseResumeFromBuffer = async (dataBuffer) => {
   try {
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+
     const data = new Uint8Array(dataBuffer);
-    const doc = await pdfjsLib.getDocument({ data }).promise;
+    const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false, useSystemFonts: true }).promise;
 
     let text = "";
     for (let i = 1; i <= doc.numPages; i++) {
@@ -57,12 +58,6 @@ export const parseResumeFromBuffer = async (dataBuffer) => {
   } catch (err) {
     throw new Error(`Failed to parse resume: ${err.message}`);
   }
-};
-
-export const parseResume = async (filePath) => {
-  const { readFile } = await import("fs").then((fs) => fs.promises);
-  const dataBuffer = await readFile(filePath);
-  return parseResumeFromBuffer(dataBuffer);
 };
 
 const extractSkills = (text) => {
