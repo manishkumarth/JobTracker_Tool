@@ -51,5 +51,10 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ message: err.message || "Something went wrong" });
 });
 
+// Only listen when running locally (not on Vercel)
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+export default app;
