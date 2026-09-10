@@ -60,4 +60,6 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ message: err.message || "Something went wrong" });
 });
 
-export default app;
+export default function handler(req, res) {
+  return app(req, res);
+}
