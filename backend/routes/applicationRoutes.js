@@ -1,6 +1,8 @@
 import express from "express";
 import Application, { APPLICATION_STATUSES } from "../models/Application.js";
 import CandidateProfile from "../models/CandidateProfile.js";
+import Contact from "../models/Contact.js";
+import Company from "../models/Company.js";
 import authMiddleware from "../middleware/auth.js";
 import { logActivity } from "../utils/activity.js";
 
@@ -45,16 +47,143 @@ router.get("/", async (req, res) => {
   }
 });
 
-// POST /api/applications
+// POST /api/applications - auto-creates Company & Contact if hr/company data provided (even single field)
 router.post("/", async (req, res) => {
   try {
     if (!req.body.jobTitle) return res.status(400).json({ message: "Job title is required" });
+
+    let companyId = req.body.company || null;
+    const companyName = (req.body.companyName || "").trim();
+    // Auto-create company if name provided but no id (handles direct API calls)
+    if (!companyId && companyName) {
+      let existing = await Company.findOne({ owner: req.userId, name: companyName });
+      if (existing) companyId = existing._id;
+      else {
+        const created = await Company.create({ owner: req.userId, name: companyName });
+        companyId = created._id;
+      }
+    }
+
+    let contactId = req.body.contact || null;
+    const hrName = (req.body.hrName || "").trim();
+    const hrEmail = (req.body.hrEmail || "").trim().toLowerCase();
+    const hrPhone = (req.body.hrPhone || "").trim();
+    // Auto-create contact if any HR identifier present and no existing contact linked
+    if (!contactId && (hrName || hrEmail || hrPhone)) {
+      if (hrEmail) {
+        // Check duplicate by email+companyRef (or just email if no company)
+        const dupQuery = { owner: req.userId, email: hrEmail };
+        if (companyId) dupQuery.companyRef = companyId;
+        const existing = await Contact.findOne(dupQuery);
+        if (existing) contactId = existing._id;
+      }
+      if (!contactId) {
+        // Validate email format if present
+        if (hrEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hrEmail)) {
+          return res.status(400).json({ message: "Invalid hrEmail format" });
+        }
+        const created = await Contact.create({
+          owner: req.userId,
+          name: hrName,
+          email: hrEmail,
+          phone: hrPhone,
+          company: companyName,
+          companyRef: companyId || null,
+          designation: "",
+          location: req.body.location || "",
+          contactType: "HR",
+        });
+        contactId = created._id;
+      }
+    }
+
     const application = await Application.create({
       ...req.body,
+      company: companyId,
+      companyName: companyName || req.body.companyName,
+      contact: contactId,
       owner: req.userId,
       activity: [{ type: "created", message: "Application created", at: new Date() }],
     });
     res.status(201).json(application);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// BULK routes must be before /:id to avoid param shadowing
+// POST /api/applications/bulk/status  -> bulk status update
+router.post("/bulk/status", async (req, res) => {
+  try {
+    const { ids, status } = req.body;
+    if (!ids?.length || !status) return res.status(400).json({ message: "ids and status are required" });
+    if (!APPLICATION_STATUSES.includes(status)) return res.status(400).json({ message: "Invalid status" });
+
+    const applications = await Application.find({ _id: { $in: ids }, owner: req.userId });
+    if (!applications.length) return res.status(404).json({ message: "No applications found" });
+
+    const bulkOps = applications.map((app) => ({
+      updateOne: {
+        filter: { _id: app._id },
+        update: {
+          $set: { status },
+          $push: { activity: { type: "status_change", message: `Status changed to ${status} (bulk)`, at: new Date() } },
+        },
+      },
+    }));
+
+    await Application.bulkWrite(bulkOps);
+    res.json({ updated: applications.length });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/applications/bulk/followup  -> bulk follow-up scheduling
+router.post("/bulk/followup", async (req, res) => {
+  try {
+    const { ids, date, type, note } = req.body;
+    if (!ids?.length || !date) return res.status(400).json({ message: "ids and date are required" });
+
+    const FollowUp = (await import("../models/FollowUp.js")).default;
+    const applications = await Application.find({ _id: { $in: ids }, owner: req.userId });
+    if (!applications.length) return res.status(404).json({ message: "No applications found" });
+
+    const followUps = applications.map((app) => ({
+      owner: req.userId,
+      application: app._id,
+      type: type || "General",
+      date: new Date(date),
+      note: note || "",
+    }));
+
+    await FollowUp.insertMany(followUps);
+
+    const bulkOps = applications.map((app) => ({
+      updateOne: {
+        filter: { _id: app._id },
+        update: {
+          $set: { followUpDate: new Date(date) },
+          $push: { activity: { type: "followup_scheduled", message: `Follow-up scheduled for ${new Date(date).toLocaleDateString()} (bulk)`, at: new Date() } },
+        },
+      },
+    }));
+    await Application.bulkWrite(bulkOps);
+
+    res.json({ created: followUps.length });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/applications/bulk/delete  -> bulk delete
+router.post("/bulk/delete", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids?.length) return res.status(400).json({ message: "ids are required" });
+
+    const result = await Application.deleteMany({ _id: { $in: ids }, owner: req.userId });
+    res.json({ deleted: result.deletedCount });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -150,83 +279,6 @@ router.delete("/:id", async (req, res) => {
   const application = await Application.findOneAndDelete({ _id: req.params.id, owner: req.userId });
   if (!application) return res.status(404).json({ message: "Not found" });
   res.json({ message: "Deleted" });
-});
-
-// POST /api/applications/bulk/status  -> bulk status update
-router.post("/bulk/status", async (req, res) => {
-  try {
-    const { ids, status } = req.body;
-    if (!ids?.length || !status) return res.status(400).json({ message: "ids and status are required" });
-    if (!APPLICATION_STATUSES.includes(status)) return res.status(400).json({ message: "Invalid status" });
-
-    const applications = await Application.find({ _id: { $in: ids }, owner: req.userId });
-    if (!applications.length) return res.status(404).json({ message: "No applications found" });
-
-    const bulkOps = applications.map((app) => ({
-      updateOne: {
-        filter: { _id: app._id },
-        update: {
-          $set: { status },
-          $push: { activity: { type: "status_change", message: `Status changed to ${status} (bulk)`, at: new Date() } },
-        },
-      },
-    }));
-
-    await Application.bulkWrite(bulkOps);
-    res.json({ updated: applications.length });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// POST /api/applications/bulk/followup  -> bulk follow-up scheduling
-router.post("/bulk/followup", async (req, res) => {
-  try {
-    const { ids, date, type, note } = req.body;
-    if (!ids?.length || !date) return res.status(400).json({ message: "ids and date are required" });
-
-    const FollowUp = (await import("../models/FollowUp.js")).default;
-    const applications = await Application.find({ _id: { $in: ids }, owner: req.userId });
-    if (!applications.length) return res.status(404).json({ message: "No applications found" });
-
-    const followUps = applications.map((app) => ({
-      owner: req.userId,
-      application: app._id,
-      type: type || "General",
-      date: new Date(date),
-      note: note || "",
-    }));
-
-    await FollowUp.insertMany(followUps);
-
-    const bulkOps = applications.map((app) => ({
-      updateOne: {
-        filter: { _id: app._id },
-        update: {
-          $set: { followUpDate: new Date(date) },
-          $push: { activity: { type: "followup_scheduled", message: `Follow-up scheduled for ${new Date(date).toLocaleDateString()} (bulk)`, at: new Date() } },
-        },
-      },
-    }));
-    await Application.bulkWrite(bulkOps);
-
-    res.json({ created: followUps.length });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// POST /api/applications/bulk/delete  -> bulk delete
-router.post("/bulk/delete", async (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!ids?.length) return res.status(400).json({ message: "ids are required" });
-
-    const result = await Application.deleteMany({ _id: { $in: ids }, owner: req.userId });
-    res.json({ deleted: result.deletedCount });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
 });
 
 export default router;

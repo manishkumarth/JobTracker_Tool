@@ -47,22 +47,55 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
       }
 
       let contactId = form.contact || null;
-      // If "create new contact" is selected and HR email is provided, create the contact first
-      if (newContact && form.hrEmail) {
+      // Auto-create contact if HR data provided (even with just one field like email/phone) - link company as well
+      const hasNewContactData = form.hrName.trim() || form.hrEmail.trim() || form.hrPhone.trim();
+      const shouldAutoCreateContact = !contactId && hasNewContactData;
+      if (shouldAutoCreateContact) {
+        if (form.hrEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.hrEmail.trim())) {
+          toast.error("Invalid contact email format");
+          setBusy(false);
+          return;
+        }
         try {
           const created = await createContact({
-            name: form.hrName,
-            email: form.hrEmail,
-            phone: form.hrPhone,
+            name: form.hrName.trim(),
+            email: form.hrEmail.trim(),
+            phone: form.hrPhone.trim(),
+            companyRef: companyId || null,
+            company: form.companyName || "",
+            location: form.location || "",
+            designation: "",
             contactType: "HR",
           });
           contactId = created._id;
-          toast.success("Contact created and linked");
+          toast.success("Contact created and linked to Contacts page");
         } catch (err) {
-          const msg = err.response?.data?.message || "Failed to create contact";
-          toast.error(msg);
-          setBusy(false);
-          return; // Don't save application if contact creation fails
+          // If duplicate (409) due to existing email, try to reuse existing contact instead of failing
+          if (err.response?.status === 409 && form.hrEmail.trim()) {
+            const existing = contacts.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
+            if (existing) {
+              contactId = existing._id;
+              toast.success("Existing contact linked");
+            } else {
+              // Fallback: search backend by email - try to fetch via listContacts filter
+              try {
+                const d = await listContacts({ search: form.hrEmail.trim() });
+                const arr = Array.isArray(d) ? d : d.contacts || [];
+                const match = arr.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
+                if (match) contactId = match._id;
+              } catch {}
+              if (!contactId) {
+                toast.error(err.response?.data?.message || "Failed to create contact");
+                setBusy(false);
+                return;
+              }
+            }
+          } else {
+            const msg = err.response?.data?.message || "Failed to create contact";
+            toast.error(msg);
+            setBusy(false);
+            return; // Don't save application if contact creation fails
+          }
         }
       }
 
@@ -204,32 +237,23 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         <div className="border-t border-color pt-3">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-medium text-muted">HR / Recruiter contact</p>
-            <button type="button" onClick={() => setNewContact(!newContact)} className="text-xs text-brand-600 dark:text-brand-400 hover:underline">
-              {newContact ? "Select existing" : "Create new"}
-            </button>
+            <span className="text-[11px] text-muted">Fills Contacts page automatically</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {newContact ? (
-              <>
-                <input placeholder="Contact name" className={inputClass} value={form.hrName} onChange={set("hrName")} />
-                <input required={newContact} placeholder="Contact email *" className={inputClass} value={form.hrEmail} onChange={set("hrEmail")} />
-                <input placeholder="Contact phone" className={inputClass} value={form.hrPhone} onChange={set("hrPhone")} />
-              </>
-            ) : (
-              <>
-                <select className={`${selectClass} sm:col-span-2`} value={form.contact} onChange={(e) => {
-                  const c = contacts.find((x) => x._id === e.target.value);
-                  setForm({ ...form, contact: e.target.value, hrName: c?.name || form.hrName, hrEmail: c?.email || form.hrEmail, hrPhone: c?.phone || form.hrPhone });
-                }}>
-                  <option value="">Select existing contact (optional)</option>
-                  {contacts.map((c) => <option key={c._id} value={c._id}>{c.name || c.email} — {c.email}</option>)}
-                </select>
-                <input placeholder="HR name" className={inputClass} value={form.hrName} onChange={set("hrName")} />
-                <input placeholder="HR email" className={inputClass} value={form.hrEmail} onChange={set("hrEmail")} />
-                <input placeholder="HR phone" className={inputClass} value={form.hrPhone} onChange={set("hrPhone")} />
-              </>
-            )}
+            <select className={`${selectClass} sm:col-span-2`} value={form.contact} onChange={(e) => {
+              const c = contacts.find((x) => x._id === e.target.value);
+              setForm({ ...form, contact: e.target.value, hrName: c?.name || "", hrEmail: c?.email || "", hrPhone: c?.phone || "" });
+            }}>
+              <option value="">Select existing contact (optional) — or fill fields below to auto-create</option>
+              {contacts.map((c) => <option key={c._id} value={c._id}>{c.name || c.email || c.phone || "Unnamed"} — {c.email || c.phone || "no email"}</option>)}
+            </select>
+            <input placeholder="Contact name (optional)" className={inputClass} value={form.hrName} onChange={set("hrName")} />
+            <input placeholder="Contact email (optional)" className={inputClass} value={form.hrEmail} onChange={set("hrEmail")} />
+            <input placeholder="Contact phone (optional)" className={inputClass} value={form.hrPhone} onChange={set("hrPhone")} />
+            <p className="sm:col-span-2 text-[11px] text-muted">If no existing contact selected and you fill any of these (even just one), a new contact will be created in Contacts with company &amp; location linked.</p>
           </div>
+          {/* hidden toggle kept for backward compat */}
+          <input type="hidden" value={newContact ? "1" : "0"} />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

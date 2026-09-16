@@ -10,6 +10,14 @@ const userSchema = new mongoose.Schema(
     gmailAddress: { type: String, default: "" },
     gmailAppPasswordEnc: { type: String, default: "" }, // encrypted app password
     gmailConnected: { type: Boolean, default: false },
+
+    // AI provider keys (encrypted at rest)
+    aiProviders: [{
+      provider: { type: String, required: true }, // e.g. "openrouter", "openai", "gemini", "anthropic", "groq", "deepseek", "together"
+      apiKeyEnc: { type: String, default: "" },   // encrypted API key
+      model: { type: String, default: "" },        // preferred model for this provider
+      active: { type: Boolean, default: false },   // which provider is currently active
+    }],
   },
   { timestamps: true }
 );

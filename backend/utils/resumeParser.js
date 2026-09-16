@@ -29,10 +29,15 @@ const EDUCATION_KEYWORDS = [
 export const parseResumeFromBuffer = async (dataBuffer) => {
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
 
     const data = new Uint8Array(dataBuffer);
-    const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false, useSystemFonts: true }).promise;
+    const doc = await pdfjsLib.getDocument({
+      data,
+      isEvalSupported: false,
+      useSystemFonts: true,
+      skipFontFace: true,
+      disableWorker: true,
+    }).promise;
 
     let text = "";
     for (let i = 1; i <= doc.numPages; i++) {

@@ -120,9 +120,26 @@ export default function CandidateProfilePage() {
     setParseResult(null);
     setShowParseResult(true);
     try {
-      const parsed = await parseCloudinaryResume(resume.cloudinaryUrl, resume.cloudinaryPublicId);
-      setParseResult(parsed);
-      toast.success("Resume parsed! Review and apply below.");
+      const result = await parseCloudinaryResume(resume.cloudinaryUrl, resume.cloudinaryPublicId);
+      setParseResult(result.parsed);
+      if (result.profile) {
+        setForm({
+          name: result.profile.name || "",
+          professionalTitle: result.profile.professionalTitle || "",
+          experience: result.profile.experience || "",
+          skills: arrToStr(result.profile.skills),
+          technologies: arrToStr(result.profile.technologies),
+          previousCompanies: arrToStr(result.profile.previousCompanies),
+          projects: arrToStr(result.profile.projects),
+          education: result.profile.education || "",
+          portfolio: result.profile.portfolio || "",
+          github: result.profile.github || "",
+          linkedin: result.profile.linkedin || "",
+          resumeText: result.profile.resumeText || "",
+          additionalInfo: result.profile.additionalInfo || "",
+        });
+      }
+      toast.success("Resume parsed and profile updated!");
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to parse resume");
     } finally {
@@ -139,10 +156,11 @@ export default function CandidateProfilePage() {
       experience: parseResult.experience || prev.experience,
       professionalTitle: parseResult.professionalTitle || prev.professionalTitle,
       education: parseResult.education || prev.education,
-      projects: arrToStr([...new Set([...strToArr(prev.projects), ...parseResult.projects.split("; ").filter(Boolean)])]),
+      previousCompanies: arrToStr([...new Set([...strToArr(prev.previousCompanies), ...(parseResult.previousCompanies || [])])]),
+      projects: arrToStr([...new Set([...strToArr(prev.projects), ...(Array.isArray(parseResult.projects) ? parseResult.projects : (parseResult.projects || "").split("; ").filter(Boolean))])]),
     }));
     setParseResult(null);
-    toast.success("Parsed data applied! Click Save to persist.");
+    toast.success("Parsed data applied to form!");
   };
 
   const handleResumeUpload = async (e) => {
@@ -360,7 +378,7 @@ export default function CandidateProfilePage() {
                     <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <h3 className="font-semibold text-success text-sm">Parsed Resume Data</h3>
+                    <h3 className="font-semibold text-success text-sm">Parsed & Saved</h3>
                   </div>
                   <button
                     type="button"
@@ -373,7 +391,7 @@ export default function CandidateProfilePage() {
 
                 {showParseResult && (
                   <div className="p-6 space-y-3">
-                    <p className="text-xs text-muted">Review before applying to your profile</p>
+                    <p className="text-xs text-muted">Profile updated in database. Review below.</p>
                     <div className="grid grid-cols-1 gap-2 text-sm">
                       {parseResult.professionalTitle && (
                         <div className="flex gap-2">
@@ -385,6 +403,28 @@ export default function CandidateProfilePage() {
                         <div className="flex gap-2">
                           <span className="font-medium text-primary shrink-0">Experience:</span>
                           <span className="text-secondary">{parseResult.experience}</span>
+                        </div>
+                      )}
+                      {parseResult.experienceEntries?.length > 0 && (
+                        <div className="mt-2">
+                          <span className="font-medium text-primary text-xs block mb-1">Experience Timeline:</span>
+                          <div className="space-y-1.5">
+                            {parseResult.experienceEntries.map((entry, i) => (
+                              <div key={i} className="flex items-start gap-2 text-xs bg-tertiary rounded-md p-2">
+                                <span className="text-brand-500 mt-0.5">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                  </svg>
+                                </span>
+                                <div>
+                                  <span className="font-medium text-primary">{entry.role}</span>
+                                  <span className="text-muted"> at </span>
+                                  <span className="text-primary">{entry.company}</span>
+                                  <span className="text-muted block">{entry.startDate} – {entry.endDate} ({entry.duration})</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                       {parseResult.skills?.length > 0 && (
@@ -405,7 +445,7 @@ export default function CandidateProfilePage() {
                       {parseResult.projects && (
                         <div className="flex gap-2">
                           <span className="font-medium text-primary shrink-0">Projects:</span>
-                          <span className="text-secondary">{parseResult.projects}</span>
+                          <span className="text-secondary">{Array.isArray(parseResult.projects) ? parseResult.projects.join("; ") : parseResult.projects}</span>
                         </div>
                       )}
                     </div>
@@ -413,10 +453,10 @@ export default function CandidateProfilePage() {
                     <div className="flex gap-2 pt-2">
                       <button type="button" onClick={applyParsedData} className="btn btn-sm btn-success">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        Apply to profile
+                        Apply to form
                       </button>
                       <button type="button" onClick={() => setParseResult(null)} className="btn btn-sm btn-ghost text-muted">
-                        Discard
+                        Dismiss
                       </button>
                     </div>
                   </div>

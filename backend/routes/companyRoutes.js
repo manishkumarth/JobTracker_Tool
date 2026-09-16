@@ -38,6 +38,23 @@ router.post("/", async (req, res) => {
   }
 });
 
+// POST /api/companies/bulk/delete
+router.post("/bulk/delete", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !ids.length) return res.status(400).json({ message: "No company IDs provided" });
+
+    const deleted = await Company.deleteMany({ _id: { $in: ids }, owner: req.userId });
+
+    await Contact.updateMany({ owner: req.userId, companyRef: { $in: ids } }, { $unset: { companyRef: 1, company: 1 } });
+    await Application.updateMany({ owner: req.userId, company: { $in: ids } }, { $unset: { company: 1, companyName: 1 } });
+
+    res.json({ deleted: deleted.deletedCount });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/companies/:id  -> full detail: company + contacts + applications + emails + calls
 router.get("/:id", async (req, res) => {
   try {

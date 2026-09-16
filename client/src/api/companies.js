@@ -5,3 +5,4 @@ export const getCompany = (id) => api.get(`/companies/${id}`).then((r) => r.data
 export const createCompany = (data) => api.post("/companies", data).then((r) => r.data);
 export const updateCompany = (id, data) => api.put(`/companies/${id}`, data).then((r) => r.data);
 export const deleteCompany = (id) => api.delete(`/companies/${id}`).then((r) => r.data);
+export const bulkDeleteCompanies = (ids) => api.post("/companies/bulk/delete", { ids }).then((r) => r.data);

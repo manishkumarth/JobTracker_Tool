@@ -4,7 +4,7 @@ const contactSchema = new mongoose.Schema(
   {
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     name: { type: String, default: "" },
-    email: { type: String, required: true, trim: true, lowercase: true },
+    email: { type: String, default: "", trim: true, lowercase: true },
     phone: { type: String, default: "" },
     company: { type: String, default: "" }, // free-text fallback (kept for backward compatibility)
     companyRef: { type: mongoose.Schema.Types.ObjectId, ref: "Company", default: null },
@@ -23,6 +23,6 @@ const contactSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-contactSchema.index({ owner: 1, email: 1, companyRef: 1 });
+contactSchema.index({ owner: 1, email: 1, companyRef: 1 }, { sparse: true });
 
 export default mongoose.model("Contact", contactSchema);

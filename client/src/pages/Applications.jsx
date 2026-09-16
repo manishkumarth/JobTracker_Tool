@@ -43,37 +43,48 @@ export default function Applications() {
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
   };
 
-  const handleBulkAction = async (action) => {
+  const executeBulkAction = async (actionOverride) => {
+    const action = actionOverride || bulkAction;
+    if (!action) return toast.error("No bulk action selected");
     if (!selectedIds.length) return toast.error("No applications selected");
-    setBulkAction(action);
-  };
-
-  const executeBulkAction = async () => {
+    // Validate required fields before calling API
+    if (action === "status" && !bulkStatus) return toast.error("Select a status first");
+    if (action === "followup" && !bulkFollowUpDate) return toast.error("Select a follow-up date first");
     try {
-      if (bulkAction === "status") {
+      if (action === "status") {
         await bulkUpdateStatus(selectedIds, bulkStatus);
         toast.success(`Updated ${selectedIds.length} applications`);
-      } else if (bulkAction === "followup") {
+      } else if (action === "followup") {
         await bulkScheduleFollowUp(selectedIds, bulkFollowUpDate, bulkFollowUpType, bulkFollowUpNote);
         toast.success(`Scheduled follow-ups for ${selectedIds.length} applications`);
-      } else if (bulkAction === "delete") {
+      } else if (action === "delete") {
         await bulkDeleteApplications(selectedIds);
         toast.success(`Deleted ${selectedIds.length} applications`);
       }
       setSelectedIds([]);
       setBulkAction(null);
+      setConfirmDialog(null);
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || "Bulk action failed");
     }
   };
 
+  const handleBulkAction = async (action) => {
+    if (!selectedIds.length) return toast.error("No applications selected");
+    setBulkAction(action);
+    // Execute immediately — previously only set state and never ran (bug)
+    await executeBulkAction(action);
+  };
+
   const confirmBulkDelete = () => {
+    if (!selectedIds.length) return toast.error("No applications selected");
+    setBulkAction("delete");
     setConfirmDialog({
       title: "Delete applications",
       message: `Are you sure you want to delete ${selectedIds.length} application(s)? This cannot be undone.`,
-      onConfirm: () => executeBulkAction(),
-      onCancel: () => setConfirmDialog(null),
+      onConfirm: () => executeBulkAction("delete"),
+      onCancel: () => { setConfirmDialog(null); setBulkAction(null); },
     });
   };
 

@@ -87,6 +87,18 @@ const links = [
       </svg>
     ),
   },
+];
+
+const configLinks = [
+  {
+    to: "/ai-settings",
+    label: "AI Providers",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+      </svg>
+    ),
+  },
   {
     to: "/profile",
     label: "Candidate Profile",
@@ -128,7 +140,7 @@ export default function Sidebar() {
       {/* Brand */}
       <div className="px-5 pt-6 pb-4">
         <h1 className="text-xl font-bold bg-gradient-to-r from-brand-400 to-brand-600 bg-clip-text text-transparent">
-          JobTrackr
+          e-Trackr
         </h1>
       </div>
 
@@ -149,6 +161,26 @@ export default function Sidebar() {
             )}
           </NavLink>
         ))}
+
+        {/* Config Section */}
+        <div className="pt-3 mt-3 border-t border-color">
+          <p className="px-3 text-[10px] font-semibold text-muted uppercase tracking-wider mb-1.5">Config</p>
+          {configLinks.map((l) => (
+            <NavLink key={l.to} to={l.to} className={linkClass} onClick={() => setOpen(false)}>
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-full" />
+                  )}
+                  <span className={`flex-shrink-0 transition-colors duration-200 ${isActive ? "text-accent" : "text-muted group-hover:text-secondary"}`}>
+                    {l.icon}
+                  </span>
+                  <span className="truncate">{l.label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
       </nav>
 
       {/* Bottom section */}
@@ -204,7 +236,7 @@ export default function Sidebar() {
       <div className="lg:hidden sticky top-0 z-20 glass border-b border-color">
         <div className="flex items-center justify-between px-4 py-3">
           <h1 className="text-lg font-bold bg-gradient-to-r from-brand-400 to-brand-600 bg-clip-text text-transparent">
-            JobTrackr
+            eTrackr
           </h1>
           <button
             onClick={() => setOpen(true)}

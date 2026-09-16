@@ -96,7 +96,7 @@ export default function Login() {
                 />
               </svg>
             </div>
-            <span className="text-xl font-bold text-brand-800">JobTrackr</span>
+            <span className="text-xl font-bold text-brand-800">E-Trackr</span>
           </div>
         </div>
 

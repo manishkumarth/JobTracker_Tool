@@ -61,7 +61,7 @@ export default function Signup() {
               </svg>
             </div>
             <span className="text-3xl font-bold text-brand-800 tracking-tight">
-              JobTrackr
+              e-Trackr
             </span>
           </div>
           <h2 className="text-4xl font-extrabold text-brand-900 leading-tight mb-4">
@@ -96,7 +96,7 @@ export default function Signup() {
                 />
               </svg>
             </div>
-            <span className="text-xl font-bold text-brand-800">JobTrackr</span>
+            <span className="text-xl font-bold text-brand-800">e-Trackr</span>
           </div>
         </div>
 
