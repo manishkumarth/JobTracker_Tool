@@ -2,15 +2,17 @@ import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { rewriteWhatsAppMessage, logWhatsAppMessage } from "../api/whatsapp.js";
 import { listResumes, uploadResume } from "../api/resumes.js";
+import { getProfile } from "../api/profile.js";
 
 const TEMPLATES = [
-  { name: "Job Opening Inquiry", message: "Hi {name}, I hope you're doing well. I'm {myName}, a {title} with {experience} of experience. I wanted to check if there are any open {role} positions at {company}. I'd love to be considered. Happy to share my resume!" },
+  { name: "Job Inquiry", message: "Hi {name}, I hope you're doing well. I'm {myName}, a {title} with {experience} of experience in {skills}. I wanted to check if there are any open positions at {company} that match my profile. I'd love to be considered. Happy to share my resume!" },
+  { name: "Job Apply", message: "Hi {name}, I'm {myName}, a {title} with {experience} experience in {skills}. I'm very interested in the {role} position at {company} and would like to apply. I've attached my resume for your review. Looking forward to hearing from you!" },
+  { name: "Referral Request", message: "Hi {name}, I hope you're well. I'm {myName}, a {title} with {experience} of experience. I'm very interested in the {role} position at {company} and saw that you work there. Would you be open to referring me? Happy to share my resume. Thank you!" },
   { name: "Follow-up", message: "Hi {name}, I hope you're doing well. I wanted to follow up on our recent conversation about the {role} position. Please let me know if there are any updates. Thank you!" },
   { name: "Thank You", message: "Hi {name}, thank you for taking the time to speak with me today. I really enjoyed learning more about the role and the team. Looking forward to hearing from you!" },
   { name: "Introduction", message: "Hi {name}, I'm {myName}, a {title} with experience in {skills}. I came across the {role} opening at {company} and wanted to reach out. Would love to connect!" },
-  { name: "Referral Request", message: "Hi {name}, I hope you're well. I'm exploring new opportunities and saw that you work at {company}. Would you be open to referring me for the {role} position? Happy to share my resume. Thanks!" },
   { name: "Quick Check-in", message: "Hi {name}, just checking in! Hope things are going well. Let me know if there's anything I can help with." },
-  { name: "Post-Interview Thank You", message: "Hi {name}, thank you for the interview today for the {role} position. I really enjoyed our conversation about {topic} and I'm even more excited about the opportunity. Looking forward to the next steps!" },
+  { name: "Post-Interview Thank You", message: "Hi {name}, thank you for the interview today for the {role} position. I really enjoyed our conversation and I'm even more excited about the opportunity. Looking forward to the next steps!" },
   { name: "Offer Negotiation", message: "Hi {name}, thank you for the offer for the {role} position! I'm very excited about the opportunity. I'd love to discuss the compensation package — would you have time this week to connect?" },
   { name: "Availability Confirmation", message: "Hi {name}, just confirming — I'm available to start from {date}. Please let me know if you need any additional information from my end. Looking forward to it!" },
   { name: "Profile Sharing", message: "Hi {name}, as discussed, here's my profile for the {role} position at {company}. I have {experience} of experience in {skills}. Happy to provide any additional details. Thank you!" },
@@ -18,9 +20,18 @@ const TEMPLATES = [
   { name: "Salary Discussion", message: "Hi {name}, I wanted to discuss the compensation for the {role} role. Based on my experience in {skills} and market research, I was hoping we could discuss a figure closer to {salary}. Open to a conversation whenever convenient." },
   { name: "Job Status Update", message: "Hi {name}, I wanted to check on the status of my application for the {role} position at {company}. Very interested in the role and happy to provide any further information needed. Thank you!" },
   { name: "Referral Thank You", message: "Hi {name}, I wanted to thank you for referring me for the {role} position at {company}. I really appreciate your support. I'll keep you updated on how it goes!" },
-  { name: "Networking", message: "Hi {name}, I came across your profile and was impressed by your work at {company}. I'm a {title} and would love to connect and learn from your experience. Would you be open to a quick chat?" },
-  { name: "Cold Outreach", message: "Hi {name}, I hope this message finds you well. I'm a {title} with expertise in {skills} and I'm very interested in the work {company} is doing. Would you be open to discussing potential opportunities on the team?" },
+  { name: "Networking", message: "Hi {name}, I came across your profile and was impressed by your work at {company}. I'm a {title} with {experience} experience and would love to connect and learn from your experience. Would you be open to a quick chat?" },
+  { name: "Cold Outreach", message: "Hi {name}, I hope this message finds you well. I'm {myName}, a {title} with {experience} experience in {skills}. I'm very interested in the work {company} is doing. Would you be open to discussing potential opportunities on the team?" },
+  { name: "Portfolio Sharing", message: "Hi {name}, I'm {myName}, a {title} with {experience} experience. Here are some of my recent projects: {projects}. I'd love to discuss how I can contribute to {company}. Happy to share more details!" },
 ];
+
+const replaceVars = (text, vars) => {
+  let result = text;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replaceAll(`{${key}}`, value || "");
+  }
+  return result.replace(/\s{2,}/g, " ").trim();
+};
 
 export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
   const [message, setMessage] = useState("");
@@ -32,19 +43,42 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
   const [resumes, setResumes] = useState([]);
   const [resumesLoading, setResumesLoading] = useState(true);
   const [selectedResume, setSelectedResume] = useState(null);
-  const [driveLink, setDriveLink] = useState("");
+  const [driveLinks, setDriveLinks] = useState([""]);
   const [attachType, setAttachType] = useState("none");
   const [uploading, setUploading] = useState(false);
+  const [profile, setProfile] = useState(null);
 
   useEffect(() => {
-    listResumes()
-      .then((d) => { setResumes(d.resumes || []); setResumesLoading(false); })
-      .catch(() => setResumesLoading(false));
+    Promise.all([
+      listResumes().catch(() => ({ resumes: [] })),
+      getProfile().catch(() => null),
+    ]).then(([resumeData, profileData]) => {
+      setResumes(resumeData.resumes || []);
+      setResumesLoading(false);
+      setProfile(profileData);
+    });
   }, []);
+
+  const getVars = () => ({
+    name: contact.name || "",
+    myName: profile?.name || "",
+    title: profile?.professionalTitle || "",
+    experience: profile?.experience || "",
+    skills: (profile?.skills || []).join(", ") || "",
+    company: contact.company || "",
+    role: contact.designation || "",
+    projects: (profile?.projects || []).join(", ") || "",
+    technologies: (profile?.technologies || []).join(", ") || "",
+    education: profile?.education || "",
+    salary: "",
+    date: "",
+    topic: "",
+  });
 
   const fillTemplate = (tpl) => {
     setSelectedTemplate(tpl.name);
-    setMessage(tpl.message);
+    const resolved = replaceVars(tpl.message, getVars());
+    setMessage(resolved);
   };
 
   const handleRewrite = async () => {
@@ -74,7 +108,6 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
       setResumes((prev) => [...prev, resume]);
       setSelectedResume(resume);
       setAttachType("resume");
-      setDriveLink("");
       toast.success("Resume uploaded");
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to upload");
@@ -84,16 +117,29 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
     }
   };
 
-  const getAttachLink = () => {
-    if (attachType === "resume" && selectedResume) return selectedResume.cloudinaryUrl;
-    if (attachType === "drive" && driveLink.trim()) return driveLink.trim();
-    return null;
+  const getAttachLinks = () => {
+    const links = [];
+    if (attachType === "resume" && selectedResume) {
+      let url = selectedResume.cloudinaryUrl;
+      if (url && !url.endsWith(".pdf")) {
+        url = url.replace(/\/upload\//, "/upload/").replace(/\?.*$/, "");
+        if (!url.endsWith(".pdf")) url += ".pdf";
+      }
+      links.push(url);
+    }
+    if (attachType === "drive") {
+      driveLinks.forEach((link) => {
+        if (link.trim()) links.push(link.trim());
+      });
+    }
+    return links;
   };
 
   const buildFinalMessage = () => {
-    const link = getAttachLink();
-    if (link) {
-      return `${message}\n\nResume: ${link}`;
+    const links = getAttachLinks();
+    if (links.length > 0) {
+      const linkText = links.map((l) => `• ${l}`).join("\n");
+      return `${message}\n\nResume:\n${linkText}`;
     }
     return message;
   };
@@ -140,9 +186,13 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
     }
   };
 
+  const addDriveLink = () => setDriveLinks((prev) => [...prev, ""]);
+  const removeDriveLink = (i) => setDriveLinks((prev) => prev.filter((_, idx) => idx !== i));
+  const updateDriveLink = (i, val) => setDriveLinks((prev) => prev.map((l, idx) => (idx === i ? val : l)));
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content max-w-lg w-full animate-[scale-in_0.2s_ease-out]" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content max-w-lg w-full animate-[scale-in_0.2s_ease-out] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center">
@@ -189,9 +239,9 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
 
           <div className="space-y-2">
             <label className="block text-xs font-medium text-muted">Attach Resume</label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => { setAttachType("none"); setSelectedResume(null); setDriveLink(""); }}
+                onClick={() => { setAttachType("none"); setSelectedResume(null); setDriveLinks([""]); }}
                 className={`btn btn-xs ${attachType === "none" ? "btn-primary" : "btn-secondary"}`}
               >
                 None
@@ -250,18 +300,32 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
             )}
 
             {attachType === "drive" && (
-              <input
-                type="url"
-                placeholder="https://drive.google.com/file/d/... or any shareable link"
-                className="input text-xs mt-2"
-                value={driveLink}
-                onChange={(e) => setDriveLink(e.target.value)}
-              />
+              <div className="mt-2 space-y-2">
+                {driveLinks.map((link, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      type="url"
+                      placeholder="https://drive.google.com/file/d/... or any shareable link"
+                      className="input text-xs flex-1"
+                      value={link}
+                      onChange={(e) => updateDriveLink(i, e.target.value)}
+                    />
+                    {driveLinks.length > 1 && (
+                      <button onClick={() => removeDriveLink(i)} className="btn btn-xs btn-ghost text-red-500 p-1" title="Remove">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={addDriveLink} className="btn btn-xs btn-ghost text-accent">
+                  + Add another link
+                </button>
+              </div>
             )}
 
-            {getAttachLink() && (
+            {getAttachLinks().length > 0 && (
               <p className="text-xs text-success mt-1">
-                Link will be appended to message as: Resume: {getAttachLink().slice(0, 50)}...
+                {getAttachLinks().length} link(s) will be appended to the message
               </p>
             )}
           </div>
