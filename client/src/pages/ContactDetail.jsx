@@ -12,6 +12,7 @@ export default function ContactDetail() {
   const [loading, setLoading] = useState(true);
   const [showComposer, setShowComposer] = useState(false);
   const [whatsappMessages, setWhatsappMessages] = useState([]);
+  const [waApp, setWaApp] = useState(() => localStorage.getItem("waApp") || "wa");
 
   useEffect(() => {
     getContact(id)
@@ -77,7 +78,7 @@ export default function ContactDetail() {
         )}
         {hasPhone && (
           <a
-            href={`https://wa.me/${getCleanPhone()}`}
+            href={`https://wa.me/${getCleanPhone()}${waApp === "wab" ? "?app_absent=0" : ""}`}
             target="_blank"
             rel="noreferrer"
             className="btn btn-sm text-white"

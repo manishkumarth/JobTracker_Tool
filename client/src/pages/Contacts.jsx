@@ -321,7 +321,7 @@ export default function Contacts() {
                       <div className="flex items-center justify-end gap-1">
                         {c.phone && (
                           <a
-                            href={`https://wa.me/${c.phone.replace(/[^0-9+]/g, "").replace(/^\+/, "")}`}
+                            href={`https://wa.me/${c.phone.replace(/[^0-9+]/g, "").replace(/^\+/, "")}${localStorage.getItem("waApp") === "wab" ? "?app_absent=0" : ""}`}
                             target="_blank"
                             rel="noreferrer"
                             className="btn btn-ghost btn-sm text-xs text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
