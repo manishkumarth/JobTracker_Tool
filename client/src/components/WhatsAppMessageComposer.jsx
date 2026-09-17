@@ -1,13 +1,25 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { rewriteWhatsAppMessage, logWhatsAppMessage } from "../api/whatsapp.js";
+import { listResumes, uploadResume } from "../api/resumes.js";
 
 const TEMPLATES = [
+  { name: "Job Opening Inquiry", message: "Hi {name}, I hope you're doing well. I'm {myName}, a {title} with {experience} of experience. I wanted to check if there are any open {role} positions at {company}. I'd love to be considered. Happy to share my resume!" },
   { name: "Follow-up", message: "Hi {name}, I hope you're doing well. I wanted to follow up on our recent conversation about the {role} position. Please let me know if there are any updates. Thank you!" },
   { name: "Thank You", message: "Hi {name}, thank you for taking the time to speak with me today. I really enjoyed learning more about the role and the team. Looking forward to hearing from you!" },
   { name: "Introduction", message: "Hi {name}, I'm {myName}, a {title} with experience in {skills}. I came across the {role} opening at {company} and wanted to reach out. Would love to connect!" },
   { name: "Referral Request", message: "Hi {name}, I hope you're well. I'm exploring new opportunities and saw that you work at {company}. Would you be open to referring me for the {role} position? Happy to share my resume. Thanks!" },
   { name: "Quick Check-in", message: "Hi {name}, just checking in! Hope things are going well. Let me know if there's anything I can help with." },
+  { name: "Post-Interview Thank You", message: "Hi {name}, thank you for the interview today for the {role} position. I really enjoyed our conversation about {topic} and I'm even more excited about the opportunity. Looking forward to the next steps!" },
+  { name: "Offer Negotiation", message: "Hi {name}, thank you for the offer for the {role} position! I'm very excited about the opportunity. I'd love to discuss the compensation package — would you have time this week to connect?" },
+  { name: "Availability Confirmation", message: "Hi {name}, just confirming — I'm available to start from {date}. Please let me know if you need any additional information from my end. Looking forward to it!" },
+  { name: "Profile Sharing", message: "Hi {name}, as discussed, here's my profile for the {role} position at {company}. I have {experience} of experience in {skills}. Happy to provide any additional details. Thank you!" },
+  { name: "Reconnect", message: "Hi {name}, it's been a while! I hope you're doing great. I'm currently exploring new opportunities and wanted to reconnect. Would love to catch up if you have a few minutes." },
+  { name: "Salary Discussion", message: "Hi {name}, I wanted to discuss the compensation for the {role} role. Based on my experience in {skills} and market research, I was hoping we could discuss a figure closer to {salary}. Open to a conversation whenever convenient." },
+  { name: "Job Status Update", message: "Hi {name}, I wanted to check on the status of my application for the {role} position at {company}. Very interested in the role and happy to provide any further information needed. Thank you!" },
+  { name: "Referral Thank You", message: "Hi {name}, I wanted to thank you for referring me for the {role} position at {company}. I really appreciate your support. I'll keep you updated on how it goes!" },
+  { name: "Networking", message: "Hi {name}, I came across your profile and was impressed by your work at {company}. I'm a {title} and would love to connect and learn from your experience. Would you be open to a quick chat?" },
+  { name: "Cold Outreach", message: "Hi {name}, I hope this message finds you well. I'm a {title} with expertise in {skills} and I'm very interested in the work {company} is doing. Would you be open to discussing potential opportunities on the team?" },
 ];
 
 export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
@@ -16,6 +28,19 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
   const [rewriting, setRewriting] = useState(false);
   const [sending, setSending] = useState(false);
   const [tone, setTone] = useState("professional");
+
+  const [resumes, setResumes] = useState([]);
+  const [resumesLoading, setResumesLoading] = useState(true);
+  const [selectedResume, setSelectedResume] = useState(null);
+  const [driveLink, setDriveLink] = useState("");
+  const [attachType, setAttachType] = useState("none");
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    listResumes()
+      .then((d) => { setResumes(d.resumes || []); setResumesLoading(false); })
+      .catch(() => setResumesLoading(false));
+  }, []);
 
   const fillTemplate = (tpl) => {
     setSelectedTemplate(tpl.name);
@@ -36,6 +61,43 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
     }
   };
 
+  const handleUploadResume = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      toast.error("Only PDF files are supported");
+      return;
+    }
+    setUploading(true);
+    try {
+      const { resume } = await uploadResume(file);
+      setResumes((prev) => [...prev, resume]);
+      setSelectedResume(resume);
+      setAttachType("resume");
+      setDriveLink("");
+      toast.success("Resume uploaded");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to upload");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const getAttachLink = () => {
+    if (attachType === "resume" && selectedResume) return selectedResume.cloudinaryUrl;
+    if (attachType === "drive" && driveLink.trim()) return driveLink.trim();
+    return null;
+  };
+
+  const buildFinalMessage = () => {
+    const link = getAttachLink();
+    if (link) {
+      return `${message}\n\nResume: ${link}`;
+    }
+    return message;
+  };
+
   const getPhone = () => {
     const raw = contact.phone || "";
     return raw.replace(/[^0-9+]/g, "");
@@ -53,17 +115,19 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
     const phone = getPhone();
     if (!phone) return toast.error("No phone number on this contact");
 
+    const finalMessage = buildFinalMessage();
+
     setSending(true);
     try {
       await logWhatsAppMessage({
         contact: contact._id,
         phone,
-        message,
+        message: finalMessage,
         templateName: selectedTemplate || "",
         aiRewritten: false,
       });
 
-      const waLink = getWaLink(message);
+      const waLink = getWaLink(finalMessage);
       if (waLink) window.open(waLink, "_blank");
 
       toast.success("Message logged & WhatsApp opened");
@@ -100,13 +164,13 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
         )}
 
         <div className="space-y-3 mb-4">
-          <label className="block text-xs font-medium text-muted">Templates</label>
-          <div className="flex flex-wrap gap-1.5">
+          <label className="block text-xs font-medium text-muted">Templates ({TEMPLATES.length})</label>
+          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
             {TEMPLATES.map((tpl) => (
               <button
                 key={tpl.name}
                 onClick={() => fillTemplate(tpl)}
-                className={`btn btn-xs ${selectedTemplate === tpl.name ? "btn-primary" : "btn-secondary"}`}
+                className={`btn btn-xs shrink-0 ${selectedTemplate === tpl.name ? "btn-primary" : "btn-secondary"}`}
               >
                 {tpl.name}
               </button>
@@ -122,6 +186,85 @@ export default function WhatsAppMessageComposer({ contact, onClose, onSent }) {
             value={message}
             onChange={(e) => { setMessage(e.target.value); setSelectedTemplate(null); }}
           />
+
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-muted">Attach Resume</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setAttachType("none"); setSelectedResume(null); setDriveLink(""); }}
+                className={`btn btn-xs ${attachType === "none" ? "btn-primary" : "btn-secondary"}`}
+              >
+                None
+              </button>
+              <button
+                onClick={() => setAttachType("resume")}
+                className={`btn btn-xs ${attachType === "resume" ? "btn-primary" : "btn-secondary"}`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                My Resume
+              </button>
+              <button
+                onClick={() => setAttachType("drive")}
+                className={`btn btn-xs ${attachType === "drive" ? "btn-primary" : "btn-secondary"}`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                Drive Link
+              </button>
+              <label className="cursor-pointer">
+                <input type="file" accept=".pdf" onChange={handleUploadResume} className="sr-only" disabled={uploading} />
+                <span className={`btn btn-xs ${uploading ? "opacity-50" : "btn-secondary"} cursor-pointer`}>
+                  {uploading ? "Uploading..." : "+ Upload PDF"}
+                </span>
+              </label>
+            </div>
+
+            {attachType === "resume" && (
+              <div className="mt-2">
+                {resumesLoading ? (
+                  <p className="text-xs text-muted">Loading resumes...</p>
+                ) : resumes.length === 0 ? (
+                  <p className="text-xs text-muted">No resumes uploaded yet. Upload one above.</p>
+                ) : (
+                  <select
+                    value={selectedResume?._id || ""}
+                    onChange={(e) => {
+                      const r = resumes.find((r) => r._id === e.target.value);
+                      setSelectedResume(r || null);
+                    }}
+                    className="input text-xs py-1.5"
+                  >
+                    <option value="">Select a resume...</option>
+                    {resumes.map((r) => (
+                      <option key={r._id} value={r._id}>
+                        {r.originalName} {r.isDefault ? "(Default)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {selectedResume && (
+                  <a href={selectedResume.cloudinaryUrl} target="_blank" rel="noreferrer" className="text-xs text-accent hover:underline mt-1 inline-block">
+                    Preview resume ↗
+                  </a>
+                )}
+              </div>
+            )}
+
+            {attachType === "drive" && (
+              <input
+                type="url"
+                placeholder="https://drive.google.com/file/d/... or any shareable link"
+                className="input text-xs mt-2"
+                value={driveLink}
+                onChange={(e) => setDriveLink(e.target.value)}
+              />
+            )}
+
+            {getAttachLink() && (
+              <p className="text-xs text-success mt-1">
+                Link will be appended to message as: Resume: {getAttachLink().slice(0, 50)}...
+              </p>
+            )}
+          </div>
 
           <div className="flex items-center gap-2">
             <label className="text-xs text-muted">Tone:</label>
