@@ -141,8 +141,10 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
 
       const jobText = `${form.jobTitle} ${form.jobDescription} ${form.requiredSkills}`.toLowerCase();
       const ROLE_KEYWORDS = [
+        ["java", "spring", "spring boot", "j2ee", "hibernate"],
+        ["react", "reactjs", "react.js"],
+        ["frontend", "front end", "front-end", "angular", "vue", "javascript", "typescript"],
         ["fullstack", "full stack", "full-stack", "mean", "mern"],
-        ["frontend", "front end", "front-end", "react", "angular", "vue"],
         ["backend", "back end", "back-end", "node", "django", "express"],
         ["devops", "aws", "cloud", "sre", "infrastructure"],
         ["data", "ml", "machine learning", "ai", "analytics"],
@@ -150,12 +152,27 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
       ];
 
       let selectedResume = null;
-      for (const keywords of ROLE_KEYWORDS) {
-        if (keywords.some((kw) => jobText.includes(kw))) {
+      const titleText = form.jobTitle.toLowerCase();
+      const matchedGroups = ROLE_KEYWORDS.filter((keywords) =>
+        keywords.some((kw) => titleText.includes(kw))
+      );
+
+      if (matchedGroups.length > 0) {
+        const allMatchedKeywords = matchedGroups.flat();
+        selectedResume = resumeList.find((r) =>
+          allMatchedKeywords.some((kw) => r.originalName.toLowerCase().includes(kw))
+        );
+      }
+
+      if (!selectedResume) {
+        const descGroups = ROLE_KEYWORDS.filter((keywords) =>
+          keywords.some((kw) => jobText.includes(kw))
+        );
+        if (descGroups.length > 0) {
+          const allMatchedKeywords = descGroups.flat();
           selectedResume = resumeList.find((r) =>
-            keywords.some((kw) => r.originalName.toLowerCase().includes(kw))
+            allMatchedKeywords.some((kw) => r.originalName.toLowerCase().includes(kw))
           );
-          if (selectedResume) break;
         }
       }
 
