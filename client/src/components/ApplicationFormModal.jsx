@@ -3,7 +3,9 @@ import toast from "react-hot-toast";
 import { createApplication } from "../api/applications.js";
 import { listCompanies, createCompany } from "../api/companies.js";
 import { listContacts, createContact } from "../api/contacts.js";
-import { parseLinkedIn } from "../api/ai.js";
+import { parseLinkedIn, generateEmail } from "../api/ai.js";
+import { listResumes } from "../api/resumes.js";
+import { sendMail } from "../api/emails.js";
 
 const JOB_SOURCES = ["Naukri", "LinkedIn", "Indeed", "Company Website", "Referral", "Recruiter", "Email", "Other"];
 const WORK_MODES = ["Remote", "Hybrid", "On-site"];
@@ -18,6 +20,13 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
   const [parsing, setParsing] = useState(false);
   const [linkedinOpen, setLinkedinOpen] = useState(false);
   const [newContact, setNewContact] = useState(false);
+  const [autoProcess, setAutoProcess] = useState(false);
+  const [autoProcessing, setAutoProcessing] = useState(false);
+  const [autoProcessStep, setAutoProcessStep] = useState("");
+  const [showResumePicker, setShowResumePicker] = useState(false);
+  const [resumeList, setResumeList] = useState([]);
+  const [selectedResumeId, setSelectedResumeId] = useState("");
+  const [pendingAutoProcess, setPendingAutoProcess] = useState(null);
   const [form, setForm] = useState({
     companyName: "", company: "", jobTitle: "", jobDescription: "", jobUrl: "",
     jobSource: "LinkedIn", location: "", workMode: "On-site", employmentType: "Full-time",
@@ -31,88 +40,181 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     listContacts().then((d) => setContacts(Array.isArray(d) ? d : d.contacts || [])).catch(() => {});
   }, []);
 
+  const saveApplication = async () => {
+    let companyId = form.company || null;
+    if (!companyId && form.companyName) {
+      const match = companies.find((c) => c.name.toLowerCase() === form.companyName.toLowerCase());
+      if (match) companyId = match._id;
+      else {
+        const created = await createCompany({ name: form.companyName });
+        companyId = created._id;
+      }
+    }
+
+    let contactId = form.contact || null;
+    const hasNewContactData = form.hrName.trim() || form.hrEmail.trim() || form.hrPhone.trim();
+    const shouldAutoCreateContact = !contactId && hasNewContactData;
+    if (shouldAutoCreateContact) {
+      if (form.hrEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.hrEmail.trim())) {
+        throw new Error("Invalid contact email format");
+      }
+      try {
+        const created = await createContact({
+          name: form.hrName.trim(),
+          email: form.hrEmail.trim(),
+          phone: form.hrPhone.trim(),
+          companyRef: companyId || null,
+          company: form.companyName || "",
+          location: form.location || "",
+          designation: "",
+          contactType: "HR",
+        });
+        contactId = created._id;
+        toast.success("Contact created and linked to Contacts page");
+      } catch (err) {
+        if (err.response?.status === 409 && form.hrEmail.trim()) {
+          const existing = contacts.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
+          if (existing) {
+            contactId = existing._id;
+            toast.success("Existing contact linked");
+          } else {
+            try {
+              const d = await listContacts({ search: form.hrEmail.trim() });
+              const arr = Array.isArray(d) ? d : d.contacts || [];
+              const match = arr.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
+              if (match) contactId = match._id;
+            } catch {}
+            if (!contactId) {
+              throw new Error(err.response?.data?.message || "Failed to create contact");
+            }
+          }
+        } else {
+          throw new Error(err.response?.data?.message || "Failed to create contact");
+        }
+      }
+    }
+
+    const application = await createApplication({
+      ...form,
+      company: companyId,
+      contact: contactId,
+      requiredSkills: form.requiredSkills.split(",").map((s) => s.trim()).filter(Boolean),
+      notes: undefined,
+    });
+
+    return { application, companyId, contactId };
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
-      let companyId = form.company || null;
-      // If they typed a new company name that doesn't match an existing one, create it
-      if (!companyId && form.companyName) {
-        const match = companies.find((c) => c.name.toLowerCase() === form.companyName.toLowerCase());
-        if (match) companyId = match._id;
-        else {
-          const created = await createCompany({ name: form.companyName });
-          companyId = created._id;
-        }
-      }
-
-      let contactId = form.contact || null;
-      // Auto-create contact if HR data provided (even with just one field like email/phone) - link company as well
-      const hasNewContactData = form.hrName.trim() || form.hrEmail.trim() || form.hrPhone.trim();
-      const shouldAutoCreateContact = !contactId && hasNewContactData;
-      if (shouldAutoCreateContact) {
-        if (form.hrEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.hrEmail.trim())) {
-          toast.error("Invalid contact email format");
-          setBusy(false);
-          return;
-        }
-        try {
-          const created = await createContact({
-            name: form.hrName.trim(),
-            email: form.hrEmail.trim(),
-            phone: form.hrPhone.trim(),
-            companyRef: companyId || null,
-            company: form.companyName || "",
-            location: form.location || "",
-            designation: "",
-            contactType: "HR",
-          });
-          contactId = created._id;
-          toast.success("Contact created and linked to Contacts page");
-        } catch (err) {
-          // If duplicate (409) due to existing email, try to reuse existing contact instead of failing
-          if (err.response?.status === 409 && form.hrEmail.trim()) {
-            const existing = contacts.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
-            if (existing) {
-              contactId = existing._id;
-              toast.success("Existing contact linked");
-            } else {
-              // Fallback: search backend by email - try to fetch via listContacts filter
-              try {
-                const d = await listContacts({ search: form.hrEmail.trim() });
-                const arr = Array.isArray(d) ? d : d.contacts || [];
-                const match = arr.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
-                if (match) contactId = match._id;
-              } catch {}
-              if (!contactId) {
-                toast.error(err.response?.data?.message || "Failed to create contact");
-                setBusy(false);
-                return;
-              }
-            }
-          } else {
-            const msg = err.response?.data?.message || "Failed to create contact";
-            toast.error(msg);
-            setBusy(false);
-            return; // Don't save application if contact creation fails
-          }
-        }
-      }
-
-      await createApplication({
-        ...form,
-        company: companyId,
-        contact: contactId,
-        requiredSkills: form.requiredSkills.split(",").map((s) => s.trim()).filter(Boolean),
-        notes: undefined,
-      });
+      await saveApplication();
       toast.success("Application added");
       onSaved();
     } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to add application");
+      toast.error(err.response?.data?.message || err.message || "Failed to add application");
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleAutoProcess = async () => {
+    setAutoProcessing(true);
+    try {
+      setAutoProcessStep("Generating email...");
+      const emailData = await generateEmail({
+        jobTitle: form.jobTitle,
+        companyName: form.companyName,
+        jobDescription: form.jobDescription,
+        recruiterName: form.hrName,
+      });
+
+      setAutoProcessStep("Selecting resume...");
+      const resumes = await listResumes();
+      const resumeList = Array.isArray(resumes) ? resumes : resumes.resumes || [];
+      if (!resumeList.length) {
+        toast.error("No resume found. Please upload a resume first.");
+        return;
+      }
+
+      const jobText = `${form.jobTitle} ${form.jobDescription} ${form.requiredSkills}`.toLowerCase();
+      const ROLE_KEYWORDS = [
+        ["fullstack", "full stack", "full-stack", "mean", "mern"],
+        ["frontend", "front end", "front-end", "react", "angular", "vue"],
+        ["backend", "back end", "back-end", "node", "django", "express"],
+        ["devops", "aws", "cloud", "sre", "infrastructure"],
+        ["data", "ml", "machine learning", "ai", "analytics"],
+        ["mobile", "android", "ios", "flutter", "react native"],
+      ];
+
+      let selectedResume = null;
+      for (const keywords of ROLE_KEYWORDS) {
+        if (keywords.some((kw) => jobText.includes(kw))) {
+          selectedResume = resumeList.find((r) =>
+            keywords.some((kw) => r.originalName.toLowerCase().includes(kw))
+          );
+          if (selectedResume) break;
+        }
+      }
+
+      if (!selectedResume) {
+        setResumeList(resumeList);
+        setSelectedResumeId(resumeList.find((r) => r.isDefault)?._id || resumeList[0]?._id || "");
+        setPendingAutoProcess(emailData);
+        setShowResumePicker(true);
+        setAutoProcessing(false);
+        return;
+      }
+
+      await finishAutoProcess(selectedResume, emailData);
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || "Auto-process failed");
+    } finally {
+      setAutoProcessing(false);
+      setAutoProcessStep("");
+    }
+  };
+
+  const finishAutoProcess = async (resume, emailData) => {
+    setAutoProcessing(true);
+    try {
+      setAutoProcessStep("Saving application...");
+      const { application } = await saveApplication();
+
+      setAutoProcessStep("Sending email...");
+      await sendMail({
+        recipientEmail: form.hrEmail,
+        recipientName: form.hrName,
+        subject: emailData.subject,
+        message: emailData.body,
+        resumeId: resume._id,
+        applicationId: application._id,
+        emailType: "Job Application",
+        isAiGenerated: true,
+      });
+
+      toast.success("Application saved and email sent!");
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || "Auto-process failed");
+    } finally {
+      setAutoProcessing(false);
+      setAutoProcessStep("");
+    }
+  };
+
+  const confirmResumeAndSend = async () => {
+    const resume = resumeList.find((r) => r._id === selectedResumeId);
+    if (!resume) {
+      toast.error("Please select a resume");
+      return;
+    }
+    setShowResumePicker(false);
+    const emailData = pendingAutoProcess;
+    setPendingAutoProcess(null);
+    await finishAutoProcess(resume, emailData);
   };
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -151,6 +253,10 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
       }
 
       toast.success(`Extracted ${filled.length} field${filled.length > 1 ? "s" : ""} from LinkedIn`);
+
+      if (autoProcess && filled.length > 0) {
+        await handleAutoProcess();
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to parse LinkedIn text");
     } finally {
@@ -177,19 +283,30 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
           {linkedinOpen && (
             <div className="px-4 pb-4 space-y-2">
               <textarea rows={4} placeholder="Paste LinkedIn job posting, recruiter profile, or any LinkedIn text here..." className={`w-full ${inputClass}`} value={linkedinText} onChange={(e) => setLinkedinText(e.target.value)} />
-              <button type="button" disabled={parsing || !linkedinText.trim()} onClick={handleParseLinkedIn} className="px-4 py-2 rounded-lg text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 flex items-center gap-2">
-                {parsing ? (
-                  <>
-                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Extracting...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                    Extract with AI
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={autoProcess}
+                    onChange={(e) => setAutoProcess(e.target.checked)}
+                    className="w-4 h-4 rounded border-border-strong text-accent focus:ring-accent"
+                  />
+                  <span className="text-xs text-muted whitespace-nowrap">Auto: Generate, Save &amp; Send</span>
+                </label>
+                <button type="button" disabled={parsing || autoProcessing || !linkedinText.trim()} onClick={handleParseLinkedIn} className="px-4 py-2 rounded-lg text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 flex items-center gap-2">
+                  {parsing || autoProcessing ? (
+                    <>
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      {autoProcessing ? autoProcessStep : "Extracting..."}
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                      Extract with AI
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -255,6 +372,39 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
           {/* hidden toggle kept for backward compat */}
           <input type="hidden" value={newContact ? "1" : "0"} />
         </div>
+
+        {showResumePicker && (
+          <div className="border border-color rounded-lg p-4 space-y-3 bg-tertiary/20">
+            <p className="text-sm font-medium text-primary">No resume matched this role. Select one:</p>
+            <select
+              value={selectedResumeId}
+              onChange={(e) => setSelectedResumeId(e.target.value)}
+              className={`w-full ${inputClass}`}
+            >
+              {resumeList.map((r) => (
+                <option key={r._id} value={r._id}>
+                  {r.originalName} ({(r.size / 1024).toFixed(0)} KB) {r.isDefault && "— Default"}
+                </option>
+              ))}
+            </select>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowResumePicker(false); setPendingAutoProcess(null); }}
+                className="px-3 py-1.5 rounded-lg text-xs bg-tertiary hover:bg-gray-200 dark:hover:bg-gray-700 text-primary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmResumeAndSend}
+                className="px-3 py-1.5 rounded-lg text-xs bg-brand-600 hover:bg-brand-700 text-white"
+              >
+                Confirm &amp; Send
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-tertiary hover:bg-gray-200 dark:hover:bg-gray-700 text-primary">Cancel</button>
