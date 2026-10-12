@@ -4,7 +4,7 @@ import { createApplication } from "../api/applications.js";
 import { listCompanies, createCompany } from "../api/companies.js";
 import { listContacts, createContact } from "../api/contacts.js";
 import { parseLinkedIn, generateEmail } from "../api/ai.js";
-import { listResumes } from "../api/resumes.js";
+import { listResumes, uploadResume } from "../api/resumes.js";
 import { sendMail } from "../api/emails.js";
 
 const JOB_SOURCES = ["Naukri", "LinkedIn", "Indeed", "Company Website", "Referral", "Recruiter", "Email", "Other"];
@@ -27,6 +27,7 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
   const [resumeList, setResumeList] = useState([]);
   const [selectedResumeId, setSelectedResumeId] = useState("");
   const [pendingAutoProcess, setPendingAutoProcess] = useState(null);
+  const [uploadingResume, setUploadingResume] = useState(false);
   const [form, setForm] = useState({
     companyName: "", company: "", jobTitle: "", jobDescription: "", jobUrl: "",
     jobSource: "LinkedIn", location: "", workMode: "On-site", employmentType: "Full-time",
@@ -217,6 +218,28 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     await finishAutoProcess(resume, emailData);
   };
 
+  const handleResumeUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      toast.error("Only PDF files are allowed");
+      return;
+    }
+    setUploadingResume(true);
+    try {
+      const result = await uploadResume(file);
+      const newResume = result.resume;
+      setResumeList((prev) => [...prev, newResume]);
+      setSelectedResumeId(newResume._id);
+      toast.success("Resume uploaded!");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to upload resume");
+    } finally {
+      setUploadingResume(false);
+      e.target.value = "";
+    }
+  };
+
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   const handleParseLinkedIn = async () => {
@@ -387,6 +410,31 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
                 </option>
               ))}
             </select>
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 border-t border-color"></div>
+              <span className="text-xs text-muted">or</span>
+              <div className="flex-1 border-t border-color"></div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-color rounded-lg cursor-pointer hover:border-brand-500 hover:bg-tertiary/30 transition-colors">
+                <svg className="w-5 h-5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <span className="text-sm text-muted">Upload new resume (PDF)</span>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={handleResumeUpload}
+                />
+              </label>
+              {uploadingResume && (
+                <p className="text-xs text-muted text-center">Uploading...</p>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -398,7 +446,8 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
               <button
                 type="button"
                 onClick={confirmResumeAndSend}
-                className="px-3 py-1.5 rounded-lg text-xs bg-brand-600 hover:bg-brand-700 text-white"
+                disabled={!selectedResumeId}
+                className="px-3 py-1.5 rounded-lg text-xs bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50"
               >
                 Confirm &amp; Send
               </button>

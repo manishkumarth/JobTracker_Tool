@@ -28,7 +28,7 @@ const EDUCATION_KEYWORDS = [
 
 export const parseResumeFromBuffer = async (dataBuffer) => {
   try {
-    const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs");
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.js");
 
     const data = new Uint8Array(dataBuffer);
     const doc = await pdfjsLib.getDocument({
@@ -37,7 +37,6 @@ export const parseResumeFromBuffer = async (dataBuffer) => {
       useSystemFonts: true,
       skipFontFace: true,
       disableWorker: true,
-      useWorkerFetch: false,
     }).promise;
 
     let text = "";
