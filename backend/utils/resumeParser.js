@@ -28,23 +28,9 @@ const EDUCATION_KEYWORDS = [
 
 export const parseResumeFromBuffer = async (dataBuffer) => {
   try {
-    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.js");
-
-    const data = new Uint8Array(dataBuffer);
-    const doc = await pdfjsLib.getDocument({
-      data,
-      isEvalSupported: false,
-      useSystemFonts: true,
-      skipFontFace: true,
-      disableWorker: true,
-    }).promise;
-
-    let text = "";
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      text += content.items.map((item) => item.str).join(" ") + "\n";
-    }
+    const pdfParse = (await import("pdf-parse")).default;
+    const result = await pdfParse(Buffer.from(dataBuffer));
+    const text = result.text;
 
     const skills = extractSkills(text);
     const experience = extractExperience(text);
