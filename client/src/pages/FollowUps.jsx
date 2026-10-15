@@ -1,8 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { listFollowUps, completeFollowUp, cancelFollowUp } from "../api/followups.js";
-import { exportCalendarICS } from "../api/calendar.js";
+import { listFollowUps, completeFollowUp, cancelFollowUp, sendFollowUpEmail } from "../api/followups.js";
 import EmptyState from "../components/EmptyState.jsx";
 
 const TABS = [
@@ -32,38 +31,40 @@ function getDueCategory(dateStr) {
 export default function FollowUps() {
   const [tab, setTab] = useState("today");
   const [followUps, setFollowUps] = useState([]);
-  const [allFollowUps, setAllFollowUps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState([]);
+  const [autoSend, setAutoSend] = useState(false);
+  const [sendingIds, setSendingIds] = useState([]);
+  const [bulkSending, setBulkSending] = useState(false);
 
   const load = () => {
     setLoading(true);
     listFollowUps({ scope: "all" })
-      .then((data) => {
-        setAllFollowUps(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        toast.error("Failed to load follow-ups");
-        setLoading(false);
-      });
+      .then((data) => setFollowUps(data))
+      .catch(() => toast.error("Failed to load follow-ups"))
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
 
   const filtered = useMemo(() => {
-    if (tab === "all") return allFollowUps;
-    return allFollowUps.filter((f) => getDueCategory(f.date) === tab);
-  }, [allFollowUps, tab]);
+    if (tab === "all") return followUps;
+    return followUps.filter((f) => getDueCategory(f.date) === tab);
+  }, [followUps, tab]);
 
   const counts = useMemo(() => {
-    const c = { overdue: 0, today: 0, upcoming: 0, all: allFollowUps.length };
-    allFollowUps.forEach((f) => { c[getDueCategory(f.date)]++; });
+    const c = { overdue: 0, today: 0, upcoming: 0, all: followUps.length };
+    followUps.forEach((f) => { c[getDueCategory(f.date)]++; });
     return c;
-  }, [allFollowUps]);
+  }, [followUps]);
+
+  const pendingItems = followUps.filter((f) => !f.emailSent);
+  const selectedCount = selected.length;
 
   const complete = async (id) => {
     try {
       await completeFollowUp(id);
-      setAllFollowUps((prev) => prev.filter((f) => f._id !== id));
+      setFollowUps((prev) => prev.filter((f) => f._id !== id));
+      setSelected((prev) => prev.filter((i) => i !== id));
       toast.success("Marked complete");
     } catch {
       toast.error("Failed to update");
@@ -73,26 +74,62 @@ export default function FollowUps() {
   const cancel = async (id) => {
     try {
       await cancelFollowUp(id);
-      setAllFollowUps((prev) => prev.filter((f) => f._id !== id));
+      setFollowUps((prev) => prev.filter((f) => f._id !== id));
+      setSelected((prev) => prev.filter((i) => i !== id));
       toast.success("Cancelled");
     } catch {
       toast.error("Failed to update");
     }
   };
 
-  const handleExportICS = async () => {
+  const sendOne = async (id) => {
+    setSendingIds((prev) => [...prev, id]);
     try {
-      const blob = await exportCalendarICS("followups");
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "followups.ics";
-      a.click();
-      window.URL.revokeObjectURL(url);
-      toast.success("Follow-ups exported to calendar");
-    } catch {
-      toast.error("Failed to export calendar");
+      await sendFollowUpEmail(id);
+      setFollowUps((prev) => prev.map((f) => (f._id === id ? { ...f, emailSent: true } : f)));
+      setSelected((prev) => prev.filter((i) => i !== id));
+      toast.success("Follow-up email sent");
+    } catch (err) {
+      if (err.response?.status === 409) {
+        setFollowUps((prev) => prev.map((f) => (f._id === id ? { ...f, emailSent: true } : f)));
+      }
+      toast.error(err.response?.data?.message || "Failed to send follow-up");
+    } finally {
+      setSendingIds((prev) => prev.filter((i) => i !== id));
     }
+  };
+
+  const sendSelected = async () => {
+    const targets = autoSend ? pendingItems.map((f) => f._id) : selected;
+    if (!targets.length) {
+      return toast.error(autoSend ? "No unsent follow-ups" : "Select at least one follow-up");
+    }
+    setBulkSending(true);
+    let ok = 0;
+    for (const id of targets) {
+      try {
+        await sendFollowUpEmail(id);
+        setFollowUps((prev) => prev.map((f) => (f._id === id ? { ...f, emailSent: true } : f)));
+        ok++;
+      } catch {
+        /* already sent or failed */
+      }
+    }
+    setBulkSending(false);
+    setSelected([]);
+    if (ok > 0) toast.success(`${ok} follow-up email${ok > 1 ? "s" : ""} sent`);
+    else toast.error("No follow-ups could be sent");
+  };
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
+  };
+
+  const allPendingSelected = pendingItems.length > 0 && pendingItems.every((f) => selected.includes(f._id));
+
+  const toggleSelectAllPending = () => {
+    if (allPendingSelected) setSelected([]);
+    else setSelected(pendingItems.map((f) => f._id));
   };
 
   return (
@@ -100,15 +137,11 @@ export default function FollowUps() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Follow-ups</h1>
-          <p className="page-subtitle">Track your application follow-ups and never miss a deadline</p>
+          <p className="page-subtitle">Track and send your application follow-ups</p>
         </div>
-        <button onClick={handleExportICS} className="btn btn-secondary">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-          Export to Calendar (.ics)
-        </button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -125,6 +158,51 @@ export default function FollowUps() {
             </span>
           </button>
         ))}
+      </div>
+
+      {/* Send controls */}
+      <div className="card p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        <label className="flex items-center gap-2 cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            checked={autoSend}
+            onChange={(e) => setAutoSend(e.target.checked)}
+            className="w-4 h-4 rounded border-border-strong text-accent focus:ring-accent"
+          />
+          <span className="text-sm text-primary">Auto send to everyone not sent yet</span>
+        </label>
+
+        <label className="flex items-center gap-2 cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            checked={allPendingSelected}
+            onChange={toggleSelectAllPending}
+            disabled={pendingItems.length === 0}
+            className="w-4 h-4 rounded border-border-strong text-accent focus:ring-accent disabled:opacity-40"
+          />
+          <span className="text-sm text-muted">
+            Select all pending ({pendingItems.length})
+          </span>
+        </label>
+
+        <div className="sm:ml-auto flex items-center gap-2">
+          {selectedCount > 0 && !autoSend && (
+            <span className="text-xs text-muted">{selectedCount} selected</span>
+          )}
+          <button onClick={sendSelected} disabled={bulkSending} className="btn btn-primary btn-sm">
+            {bulkSending ? (
+              <>
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Sending...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                {autoSend ? "Send all unsent" : "Send selected"}
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="card overflow-hidden">
@@ -168,38 +246,69 @@ export default function FollowUps() {
                 category === "overdue" ? "status-dot-red" :
                 category === "today" ? "status-dot-yellow" :
                 "status-dot-blue";
+              const isSending = sendingIds.includes(f._id);
               return (
-                <div key={f._id} className="flex items-center gap-4 p-4 hover-bg transition-colors">
-                  <div className={`status-dot ${dotClass} shrink-0 mt-1`} />
+                <div key={f._id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 hover-bg transition-colors">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className={`status-dot ${dotClass} shrink-0 mt-1.5`} />
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <Link
-                        to={`/applications/${f.application?._id}`}
-                        className="font-medium text-sm text-primary hover:text-accent truncate"
-                      >
-                        {f.application?.jobTitle || "—"}
-                      </Link>
-                      {f.application?.company?.name && (
-                        <span className="text-xs text-muted">at {f.application.company.name}</span>
-                      )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          to={`/applications/${f.application?._id}`}
+                          className="font-medium text-sm text-primary hover:text-accent truncate"
+                        >
+                          {f.application?.jobTitle || "—"}
+                        </Link>
+                        {f.application?.company?.name && (
+                          <span className="text-xs text-muted">at {f.application.company.name}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className={`badge ${TYPE_BADGE[f.type] || "badge-neutral"}`}>
+                          {f.type}
+                        </span>
+                        <span className={`text-xs font-medium ${
+                          category === "overdue" ? "text-danger" :
+                          category === "today" ? "text-warning" :
+                          "text-info"
+                        }`}>
+                          {new Date(f.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                        </span>
+                        {f.emailSent && (
+                          <span className="badge badge-success text-[10px]">Email sent</span>
+                        )}
+                      </div>
+                      {f.note && <p className="text-xs text-muted mt-1 truncate">{f.note}</p>}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={`badge ${TYPE_BADGE[f.type] || "badge-neutral"}`}>
-                        {f.type}
-                      </span>
-                      <span className={`text-xs font-medium ${
-                        category === "overdue" ? "text-danger" :
-                        category === "today" ? "text-warning" :
-                        "text-info"
-                      }`}>
-                        {new Date(f.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                      </span>
-                    </div>
-                    {f.note && <p className="text-xs text-muted mt-1 truncate">{f.note}</p>}
                   </div>
 
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 pl-6 sm:pl-0">
+                    <label className="flex items-center gap-1.5 cursor-pointer" title={f.emailSent ? "Already sent" : "Select to send"}>
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(f._id)}
+                        disabled={f.emailSent}
+                        onChange={() => toggleSelect(f._id)}
+                        className="w-4 h-4 rounded border-border-strong text-accent focus:ring-accent disabled:opacity-40"
+                      />
+                      <span className="text-xs text-muted">Send</span>
+                    </label>
+
+                    {!f.emailSent && (
+                      <button
+                        onClick={() => sendOne(f._id)}
+                        disabled={isSending}
+                        className="btn btn-sm btn-primary"
+                        title="Send follow-up email now"
+                      >
+                        {isSending ? (
+                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                        )}
+                      </button>
+                    )}
                     <button
                       onClick={() => complete(f._id)}
                       className="btn btn-sm btn-success"

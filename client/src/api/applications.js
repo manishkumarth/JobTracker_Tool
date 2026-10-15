@@ -11,6 +11,7 @@ export const computeMatchScore = (id) => api.post(`/applications/${id}/match-sco
 export const bulkUpdateStatus = (ids, status) => api.post("/applications/bulk/status", { ids, status }).then((r) => r.data);
 export const bulkScheduleFollowUp = (ids, date, type, note) => api.post("/applications/bulk/followup", { ids, date, type, note }).then((r) => r.data);
 export const bulkDeleteApplications = (ids) => api.post("/applications/bulk/delete", { ids }).then((r) => r.data);
+export const bulkSendFollowUps = (ids) => api.post("/applications/bulk/send-followups", { ids }).then((r) => r.data);
 
 export const APPLICATION_STATUSES = [
   "NEW", "SAVED", "APPLYING", "APPLIED", "EMAIL_SENT",

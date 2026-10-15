@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { listUsers, disableUser, enableUser, deleteUser, runAutoFollowUp } from "../api/admin.js";
+import { listUsers, disableUser, enableUser, deleteUser } from "../api/admin.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isAdminUser } from "../constants.js";
 
@@ -9,7 +9,6 @@ export default function Admin() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
-  const [running, setRunning] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -64,18 +63,6 @@ export default function Admin() {
     }
   };
 
-  const handleRunFollowUps = async () => {
-    setRunning(true);
-    try {
-      const r = await runAutoFollowUp();
-      toast.success(`Follow-ups sent: ${r.sent} (skipped ${r.skipped})`);
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to run");
-    } finally {
-      setRunning(false);
-    }
-  };
-
   if (!isAdminUser(user)) {
     return (
       <div className="space-y-6">
@@ -89,14 +76,11 @@ export default function Admin() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="page-header flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+      <div className="page-header">
         <div>
           <h1 className="page-title">Admin Access</h1>
-          <p className="page-subtitle">Manage users, disable accounts, and run auto follow-ups.</p>
+          <p className="page-subtitle">Manage users and disable accounts.</p>
         </div>
-        <button onClick={handleRunFollowUps} disabled={running} className="btn btn-primary btn-sm">
-          {running ? "Running..." : "Run auto follow-ups now"}
-        </button>
       </div>
 
       <div className="card overflow-hidden">

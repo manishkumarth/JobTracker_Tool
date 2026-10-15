@@ -53,6 +53,15 @@ STRICT RULES:
 
 const JSON_ONLY = "Respond ONLY with raw JSON, no markdown fences, no preamble";
 
+// Some models emit stray square brackets / empty lists — strip them from output.
+const sanitizeText = (text) =>
+  (text || "")
+    .replace(/\[\s*\]/g, "")
+    .replace(/\[/g, "")
+    .replace(/\]/g, "")
+    .replace(/\s{3,}/g, "  ")
+    .trim();
+
 // POST /api/ai/generate-email
 router.post("/generate-email", async (req, res) => {
   try {
@@ -82,7 +91,7 @@ ${candidateFactsBlock(profile)}
 JOB DETAILS:
 Job title: ${resolvedJobTitle}
 Company: ${resolvedCompany || "(not provided)"}
-Recruiter name: ${resolvedRecruiter || "(unknown — use a generic greeting like 'Hi there' or 'Dear Hiring Team')"}
+Recruiter name: ${resolvedRecruiter || "(unknown)"}
 Job description:
 ${resolvedDescription || "(not provided)"}
 
@@ -91,6 +100,8 @@ Tone: ${tone || "professional"}
 Length: ${length || "short"} (short = under 150 words, medium = 150-250 words)
 
 Write a job application email. Only mention candidate skills/experience that genuinely overlap with what the job needs, drawn strictly from the candidate facts above.
+
+GREETING RULE: If a recruiter name is provided, start with "Dear <name>,". If no recruiter name is provided, start with "Dear Hiring Team," or "Dear Hiring Manager,". Never leave the greeting blank or use placeholders.
 ${masterPromptBlock(profile)}
 ${JSON_ONLY}, in exactly this shape:
 {"subject": "...", "body": "..."}`.trim();
@@ -98,7 +109,7 @@ ${JSON_ONLY}, in exactly this shape:
     const text = await callLLM({ userProviders, prompt, preferProvider: provider, preferModel: model });
     const parsed = parseJson(text);
     if (!parsed.subject || !parsed.body) throw new Error("LLM returned an unexpected format");
-    res.json(parsed);
+    res.json({ subject: sanitizeText(parsed.subject), body: sanitizeText(parsed.body) });
   } catch (err) {
     cleanAiError(res, err);
   }
@@ -130,6 +141,8 @@ Recruiter: ${application.hrName || "(unknown)"}
 Original email sent: ${originalEmail?.subject ? `Subject: ${originalEmail.subject}` : "(not on file)"}
 
 Write a brief, professional follow-up email (under 100 words) checking in on the application status, referencing the original application politely without being pushy.
+
+GREETING RULE: If a recruiter name is provided, start with "Dear <name>,". If no recruiter name is provided, start with "Dear Hiring Team," or "Dear Hiring Manager,". Never leave the greeting blank or use placeholders.
 ${masterPromptBlock(profile)}
 ${JSON_ONLY}:
 {"subject": "...", "body": "..."}`.trim();
@@ -137,7 +150,7 @@ ${JSON_ONLY}:
     const text = await callLLM({ userProviders, prompt, preferProvider: provider, preferModel: model });
     const parsed = parseJson(text);
     if (!parsed.subject || !parsed.body) throw new Error("LLM returned an unexpected format");
-    res.json(parsed);
+    res.json({ subject: sanitizeText(parsed.subject), body: sanitizeText(parsed.body) });
   } catch (err) {
     cleanAiError(res, err);
   }
@@ -167,7 +180,7 @@ ${JSON_ONLY}:
     const text = await callLLM({ userProviders, prompt, preferProvider: provider, preferModel: model });
     const parsed = parseJson(text);
     if (!parsed.subject || !parsed.body) throw new Error("LLM returned an unexpected format");
-    res.json(parsed);
+    res.json({ subject: sanitizeText(parsed.subject), body: sanitizeText(parsed.body) });
   } catch (err) {
     cleanAiError(res, err);
   }

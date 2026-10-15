@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { listApplications, APPLICATION_STATUSES, bulkUpdateStatus, bulkScheduleFollowUp, bulkDeleteApplications } from "../api/applications.js";
+import { listApplications, APPLICATION_STATUSES, bulkUpdateStatus, bulkScheduleFollowUp, bulkDeleteApplications, bulkSendFollowUps } from "../api/applications.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import ApplicationFormModal from "../components/ApplicationFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -19,6 +19,7 @@ export default function Applications() {
   const [bulkFollowUpDate, setBulkFollowUpDate] = useState("");
   const [bulkFollowUpType, setBulkFollowUpType] = useState("General");
   const [bulkFollowUpNote, setBulkFollowUpNote] = useState("");
+  const [autoSendFollowUps, setAutoSendFollowUps] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
   const load = () => {
@@ -55,8 +56,13 @@ export default function Applications() {
         await bulkUpdateStatus(selectedIds, bulkStatus);
         toast.success(`Updated ${selectedIds.length} applications`);
       } else if (action === "followup") {
-        await bulkScheduleFollowUp(selectedIds, bulkFollowUpDate, bulkFollowUpType, bulkFollowUpNote);
-        toast.success(`Scheduled follow-ups for ${selectedIds.length} applications`);
+        if (autoSendFollowUps) {
+          await bulkSendFollowUps(selectedIds);
+          toast.success(`Sent follow-up emails to ${selectedIds.length} applications`);
+        } else {
+          await bulkScheduleFollowUp(selectedIds, bulkFollowUpDate, bulkFollowUpType, bulkFollowUpNote);
+          toast.success(`Scheduled follow-ups for ${selectedIds.length} applications`);
+        }
       } else if (action === "delete") {
         await bulkDeleteApplications(selectedIds);
         toast.success(`Deleted ${selectedIds.length} applications`);
@@ -130,13 +136,13 @@ export default function Applications() {
         </svg>
         <input
           type="text"
-          placeholder="Search by job title, company, HR..."
-          className="input pl-12"
+          placeholder="Search by job title, company, HR, location..."
+          className="input pl-12 w-full sm:max-w-md"
           value={search}
           onChange={(e) => { setPage(1); setSearch(e.target.value); }}
         />
         {search && (
-          <button onClick={() => setSearch("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted hover:text-primary">
+          <button onClick={() => setSearch("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted hover:text-primary" aria-label="Clear search">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         )}
@@ -337,8 +343,17 @@ export default function Applications() {
                       <option value="Other">Other</option>
                     </select>
                     <input type="text" placeholder="Note..." className="input text-xs w-32" value={bulkFollowUpNote} onChange={(e) => setBulkFollowUpNote(e.target.value)} />
-                    <button disabled={!bulkFollowUpDate} onClick={() => handleBulkAction("followup")} className="btn-warning btn-sm">
-                      Schedule
+                    <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={autoSendFollowUps}
+                        onChange={(e) => setAutoSendFollowUps(e.target.checked)}
+                        className="w-4 h-4 rounded border-border-strong text-accent focus:ring-accent"
+                      />
+                      <span className="text-xs text-muted">Auto send</span>
+                    </label>
+                    <button disabled={!bulkFollowUpDate && !autoSendFollowUps} onClick={() => handleBulkAction("followup")} className="btn-warning btn-sm">
+                      {autoSendFollowUps ? "Send Follow-ups" : "Schedule"}
                     </button>
                   </div>
 

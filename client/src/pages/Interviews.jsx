@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { listInterviews, updateInterview } from "../api/interviews.js";
-import { exportCalendarICS } from "../api/calendar.js";
 import EmptyState from "../components/EmptyState.jsx";
 
 const RESULTS = ["Scheduled", "Completed", "Passed", "Failed", "Rescheduled", "Cancelled"];
@@ -37,21 +36,6 @@ export default function Interviews() {
     }
   };
 
-  const handleExportICS = async () => {
-    try {
-      const blob = await exportCalendarICS("interviews");
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "interviews.ics";
-      a.click();
-      window.URL.revokeObjectURL(url);
-      toast.success("Interviews exported to calendar");
-    } catch {
-      toast.error("Failed to export calendar");
-    }
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="page-header">
@@ -59,10 +43,6 @@ export default function Interviews() {
           <h1 className="page-title">Interviews</h1>
           <p className="page-subtitle">Manage and track your interview schedule</p>
         </div>
-        <button onClick={handleExportICS} className="btn btn-secondary">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-          Export to Calendar (.ics)
-        </button>
       </div>
 
       <div className="card overflow-hidden">

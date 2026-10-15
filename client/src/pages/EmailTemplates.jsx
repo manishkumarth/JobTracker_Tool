@@ -36,15 +36,60 @@ export default function EmailTemplates() {
   const [busy, setBusy] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
+  useEffect(() => {
+    load();
+  }, []);
+
+  const addSampleTemplates = async () => {
+    const samples = [
+      {
+        name: "Initial Job Application",
+        type: "Job Application",
+        subject: "Application for {{jobTitle}} at {{companyName}}",
+        body: "Dear Hiring Team,\n\nI am writing to express my interest in the {{jobTitle}} position at {{companyName}}. With my background in {{skills}}, I believe I would be a valuable addition to your team.\n\nI have attached my resume for your review and would welcome the opportunity to discuss how my experience aligns with your needs.\n\nThank you for your time and consideration.\n\nBest regards,\n{{candidateName}}",
+      },
+      {
+        name: "Follow-up After Application",
+        type: "Follow-up",
+        subject: "Following up: {{jobTitle}} application at {{companyName}}",
+        body: "Dear Hiring Team,\n\nI recently applied for the {{jobTitle}} position and wanted to follow up on my application. I remain very interested in this opportunity and would love to discuss how my experience with {{skills}} could benefit {{companyName}}.\n\nPlease let me know if you need any additional information from my side.\n\nThank you for your time.\n\nBest regards,\n{{candidateName}}",
+      },
+      {
+        name: "Interview Thank You",
+        type: "Interview Thank You",
+        subject: "Thank you - {{jobTitle}} interview at {{companyName}}",
+        body: "Dear {{recruiterName}},\n\nThank you for taking the time to speak with me about the {{jobTitle}} role at {{companyName}}. I enjoyed learning more about the team and the challenges you're tackling.\n\nOur conversation reinforced my interest in the position, and I'm confident my experience with {{skills}} would allow me to contribute effectively.\n\nI look forward to hearing about next steps.\n\nBest regards,\n{{candidateName}}",
+      },
+      {
+        name: "Recruiter Referral Request",
+        type: "Referral Request",
+        subject: "Referral request: {{jobTitle}} at {{companyName}}",
+        body: "Hi {{recruiterName}},\n\nI hope you're doing well. I'm reaching out because I saw the {{jobTitle}} opening at {{companyName}} and believe my background in {{skills}} would be a strong fit.\n\nWould you be open to referring me for this role? I've attached my resume and would greatly appreciate your support.\n\nThank you for considering my request.\n\nBest regards,\n{{candidateName}}",
+      },
+      {
+        name: "Cold Outreach to Hiring Manager",
+        type: "Cold Outreach",
+        subject: "Inquiry about {{jobTitle}} opportunities at {{companyName}}",
+        body: "Dear Hiring Manager,\n\nI came across {{companyName}} and was impressed by your work in the industry. I'm a {{candidateName}} with experience in {{skills}} and am exploring opportunities to contribute to a team like yours.\n\nI'd welcome a brief conversation to see if there's a mutual fit. My resume is attached for your reference.\n\nThank you for your time.\n\nBest regards,\n{{candidateName}}",
+      },
+    ];
+
+    try {
+      for (const tmpl of samples) {
+        await createTemplate(tmpl);
+      }
+      toast.success("5 sample templates added!");
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to add samples");
+    }
+  };
+
   const load = () =>
     listTemplates()
       .then(setTemplates)
       .catch(() => toast.error("Failed to load templates"))
       .finally(() => setLoading(false));
-
-  useEffect(() => {
-    load();
-  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -133,32 +178,38 @@ export default function EmailTemplates() {
             Reusable templates with dynamic variables
           </p>
         </div>
-        <button
-          onClick={() =>
-            setEditing({
-              name: "",
-              subject: "",
-              body: "",
-              type: "Job Application",
-            })
-          }
-          className="btn-primary"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() =>
+              setEditing({
+                name: "",
+                subject: "",
+                body: "",
+                type: "Job Application",
+              })
+            }
+            className="btn-primary flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium shadow-sm"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          Create Template
-        </button>
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+            Create Template
+          </button>
+          <button onClick={addSampleTemplates} className="btn-secondary flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            Add Sample Templates
+          </button>
+        </div>
       </div>
 
       {/* Variable Reference */}

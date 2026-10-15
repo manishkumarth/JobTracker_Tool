@@ -176,6 +176,46 @@ router.post("/bulk/followup", async (req, res) => {
   }
 });
 
+// POST /api/applications/bulk/send-followups  -> bulk send follow-up emails
+router.post("/bulk/send-followups", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids?.length) return res.status(400).json({ message: "ids are required" });
+
+    const applications = await Application.find({ _id: { $in: ids }, owner: req.userId });
+    if (!applications.length) return res.status(404).json({ message: "No applications found" });
+
+    const User = (await import("../models/User.js")).default;
+    const Contact = (await import("../models/Contact.js")).default;
+    const CandidateProfile = (await import("../models/CandidateProfile.js")).default;
+    const { sendFollowUpEmail } = await import("../utils/followUpSender.js");
+
+    const user = await User.findById(req.userId);
+    if (!user.gmailConnected) {
+      return res.status(400).json({ message: "Connect Gmail in Config before sending follow-ups" });
+    }
+
+    const profile = await CandidateProfile.findOne({ owner: req.userId });
+    let sent = 0;
+    let failed = 0;
+
+    for (const application of applications) {
+      try {
+        const contact = application.contact ? await Contact.findById(application.contact) : null;
+        const result = await sendFollowUpEmail({ user, application, contact, profile });
+        if (result.sent) sent++;
+        else failed++;
+      } catch {
+        failed++;
+      }
+    }
+
+    res.json({ sent, failed });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // POST /api/applications/bulk/delete  -> bulk delete
 router.post("/bulk/delete", async (req, res) => {
   try {

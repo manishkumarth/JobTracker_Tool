@@ -6,3 +6,4 @@ export const updateFollowUp = (id, data) => api.put(`/followups/${id}`, data).th
 export const completeFollowUp = (id) => api.patch(`/followups/${id}/complete`).then((r) => r.data);
 export const cancelFollowUp = (id) => api.patch(`/followups/${id}/cancel`).then((r) => r.data);
 export const deleteFollowUp = (id) => api.delete(`/followups/${id}`).then((r) => r.data);
+export const sendFollowUpEmail = (id) => api.post(`/followups/${id}/send`).then((r) => r.data);
