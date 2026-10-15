@@ -10,6 +10,8 @@ const router = express.Router();
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
+const ADMIN_EMAIL = "manish12099@gmail.com";
+
 // POST /api/auth/signup
 router.post("/signup", async (req, res) => {
   try {
@@ -21,7 +23,13 @@ router.post("/signup", async (req, res) => {
     if (existing) return res.status(409).json({ message: "Account already exists" });
 
     const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email: email.toLowerCase(), password: hashed });
+    const isAdmin = email.toLowerCase() === ADMIN_EMAIL;
+    const user = await User.create({
+      name,
+      email: email.toLowerCase(),
+      password: hashed,
+      isAdmin,
+    });
 
     const token = signToken(user._id);
     res.status(201).json({
@@ -49,6 +57,12 @@ router.post("/login", async (req, res) => {
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ message: "Invalid credentials" });
+
+    // Auto-promote the designated admin email (handles existing accounts)
+    if (user.email === ADMIN_EMAIL && !user.isAdmin) {
+      user.isAdmin = true;
+      await user.save();
+    }
 
     const token = signToken(user._id);
     res.json({

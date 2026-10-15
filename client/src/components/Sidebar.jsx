@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
+import { isAdminUser } from "../constants.js";
 
 const links = [
   {
@@ -181,7 +182,7 @@ export default function Sidebar() {
             </NavLink>
           ))}
 
-          {user?.isAdmin && (
+          {isAdminUser(user) && (
             <NavLink
               to="/admin"
               className={({ isActive }) =>

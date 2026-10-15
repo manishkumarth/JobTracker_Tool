@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { listUsers, disableUser, enableUser, deleteUser, runAutoFollowUp } from "../api/admin.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isAdminUser } from "../constants.js";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -75,7 +76,7 @@ export default function Admin() {
     }
   };
 
-  if (!user?.isAdmin) {
+  if (!isAdminUser(user)) {
     return (
       <div className="space-y-6">
         <div className="page-header">

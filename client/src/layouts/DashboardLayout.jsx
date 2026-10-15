@@ -3,6 +3,7 @@ import Sidebar from "../components/Sidebar.jsx";
 import DisabledBanner from "../components/DisabledBanner.jsx";
 import HowItWorks from "../components/HowItWorks.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isAdminUser } from "../constants.js";
 
 const pageNames = {
   "/dashboard": "Dashboard",
@@ -34,7 +35,7 @@ export default function DashboardLayout() {
           <div className="max-w-6xl mx-auto px-8 py-4 flex items-center justify-between gap-4">
             <h2 className="text-lg font-semibold text-primary">{pageName}</h2>
             <div className="h-px flex-1 mx-6 bg-gradient-to-r from-transparent via-border-strong to-transparent" />
-            {user?.isAdmin && (
+            {isAdminUser(user) && (
               <NavLink to="/admin" className="btn btn-secondary btn-sm text-danger">
                 Admin
               </NavLink>

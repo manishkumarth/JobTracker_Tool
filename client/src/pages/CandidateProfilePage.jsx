@@ -125,6 +125,7 @@ export default function CandidateProfilePage() {
           linkedin: p.linkedin || "",
           resumeText: p.resumeText || "",
           additionalInfo: p.additionalInfo || "",
+          masterPrompt: p.masterPrompt || "",
         })
       )
       .catch(() => toast.error("Failed to load profile"));
@@ -360,6 +361,19 @@ export default function CandidateProfilePage() {
               <div>
                 <label className="block text-xs font-medium text-muted mb-1">Additional information</label>
                 <textarea placeholder="Any other information you'd like to include..." rows={2} className="input" value={form.additionalInfo} onChange={set("additionalInfo")} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted mb-1">Master prompt (your instructions for every AI email)</label>
+                <textarea
+                  placeholder="e.g. Always keep emails under 120 words. Sign off as 'Thanks, Manish'. Never mention salary expectations."
+                  rows={4}
+                  className="input font-mono text-xs"
+                  value={form.masterPrompt || ""}
+                  onChange={set("masterPrompt")}
+                />
+                <p className="text-[11px] text-muted mt-1">
+                  Saved with your profile and applied to email generation and follow-ups. You can also edit it in Config.
+                </p>
               </div>
             </div>
           </div>
