@@ -10,4 +10,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Feature switches: when the admin turns a feature off for this user the API
+// answers 403 with { featureDisabled }. Announce it globally so a single popup
+// can tell the user to contact support.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const data = error.response?.data;
+    if (error.response?.status === 403 && (data?.featureDisabled || data?.disabled)) {
+      window.dispatchEvent(
+        new CustomEvent("feature-disabled", {
+          detail: {
+            message: data.message,
+            feature: data.featureDisabled,
+            disabled: Boolean(data.disabled),
+          },
+        })
+      );
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;

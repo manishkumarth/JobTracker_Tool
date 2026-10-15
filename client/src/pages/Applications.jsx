@@ -5,8 +5,10 @@ import { listApplications, APPLICATION_STATUSES, bulkUpdateStatus, bulkScheduleF
 import StatusBadge from "../components/StatusBadge.jsx";
 import ApplicationFormModal from "../components/ApplicationFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import { useGmailGuard } from "../context/GmailContext.jsx";
 
 export default function Applications() {
+  const { requireGmail } = useGmailGuard();
   const [data, setData] = useState({ applications: [], total: 0, pages: 1 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -51,6 +53,7 @@ export default function Applications() {
     // Validate required fields before calling API
     if (action === "status" && !bulkStatus) return toast.error("Select a status first");
     if (action === "followup" && !bulkFollowUpDate) return toast.error("Select a follow-up date first");
+    if (action === "followup" && autoSendFollowUps && !requireGmail()) return;
     try {
       if (action === "status") {
         await bulkUpdateStatus(selectedIds, bulkStatus);

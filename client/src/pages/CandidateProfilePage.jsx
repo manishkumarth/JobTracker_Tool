@@ -372,7 +372,7 @@ export default function CandidateProfilePage() {
                   onChange={set("masterPrompt")}
                 />
                 <p className="text-[11px] text-muted mt-1">
-                  Saved with your profile and applied to email generation and follow-ups. You can also edit it in Config.
+                  Saved with your profile and applied to email generation and follow-ups. You can also edit it in Settings.
                 </p>
               </div>
             </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { getProviders, saveProvider, deleteProvider, activateProvider, testProvider } from "../api/settings.js";
 import { getProfile, updateProfile } from "../api/profile.js";
+import { getAppVideo } from "../api/admin.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import api from "../api/axios.js";
 
@@ -72,6 +73,58 @@ const PROVIDER_ICONS = {
   together: "🤝",
 };
 
+function GmailHelpButton() {
+  const [url, setUrl] = useState("");
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    getAppVideo()
+      .then((d) => setUrl(d.url || ""))
+      .catch(() => {});
+  }, []);
+
+  if (!url) return null;
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="btn btn-secondary btn-sm shrink-0">
+        <svg className="w-4 h-4 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+        </svg>
+        How to connect
+      </button>
+
+      {open && (
+        <div className="modal-overlay" onClick={() => setOpen(false)}>
+          <div className="modal-content p-5 space-y-4 max-w-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-primary">How to connect Gmail</h2>
+                <p className="text-xs text-muted">Create a Gmail App Password step by step</p>
+              </div>
+              <button onClick={() => setOpen(false)} className="btn-icon shrink-0" aria-label="Close">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="rounded-xl overflow-hidden border border-color bg-black aspect-video">
+              <iframe
+                className="w-full h-full"
+                src={url}
+                title="How to create a Gmail App Password"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function GmailSection() {
   const { user, refreshUser } = useAuth();
   const [gmailAddress, setGmailAddress] = useState("");
@@ -107,16 +160,19 @@ function GmailSection() {
 
   return (
     <div className="card p-6 space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
-          <svg className="w-5 h-5 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" />
-          </svg>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-primary">Gmail Connection</h2>
+            <p className="text-xs text-muted">Send emails from your own address</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-sm font-bold text-primary">Gmail Connection</h2>
-          <p className="text-xs text-muted">Send emails from your own address</p>
-        </div>
+        <GmailHelpButton />
       </div>
 
       {user?.gmailConnected ? (
@@ -308,9 +364,9 @@ export default function AiSettings() {
     <div className="space-y-6 animate-fade-in">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Config</h1>
+          <h1 className="page-title">Settings</h1>
           <p className="page-subtitle">
-            Manage AI providers and Gmail connection
+            Manage Gmail connection, Master Prompt and AI providers
             {activeProvider && (
               <span className="ml-2 badge badge-success text-xs">Active: {activeProvider.name}</span>
             )}

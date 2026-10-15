@@ -17,6 +17,7 @@ import AiSettings from "./pages/AiSettings.jsx";
 import Admin from "./pages/Admin.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
+import { GmailProvider } from "./context/GmailContext.jsx";
 
 const Protected = ({ children }) => {
   const { user, loading } = useAuth();
@@ -26,34 +27,36 @@ const Protected = ({ children }) => {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
+    <GmailProvider>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
 
-      <Route
-        element={
-          <Protected>
-            <DashboardLayout />
-          </Protected>
-        }
-      >
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/applications" element={<Applications />} />
-        <Route path="/applications/:id" element={<ApplicationDetail />} />
-        <Route path="/companies" element={<Companies />} />
-        <Route path="/companies/:id" element={<CompanyDetail />} />
-        <Route path="/contacts" element={<Contacts />} />
-        <Route path="/contacts/:id" element={<ContactDetail />} />
-        <Route path="/emails" element={<EmailHistory />} />
-        <Route path="/templates" element={<EmailTemplates />} />
-        <Route path="/followups" element={<FollowUps />} />
-        <Route path="/interviews" element={<Interviews />} />
-        <Route path="/profile" element={<CandidateProfilePage />} />
-        <Route path="/ai-settings" element={<AiSettings />} />
-        <Route path="/admin" element={<Admin />} />
-      </Route>
+        <Route
+          element={
+            <Protected>
+              <DashboardLayout />
+            </Protected>
+          }
+        >
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/applications" element={<Applications />} />
+          <Route path="/applications/:id" element={<ApplicationDetail />} />
+          <Route path="/companies" element={<Companies />} />
+          <Route path="/companies/:id" element={<CompanyDetail />} />
+          <Route path="/contacts" element={<Contacts />} />
+          <Route path="/contacts/:id" element={<ContactDetail />} />
+          <Route path="/emails" element={<EmailHistory />} />
+          <Route path="/templates" element={<EmailTemplates />} />
+          <Route path="/followups" element={<FollowUps />} />
+          <Route path="/interviews" element={<Interviews />} />
+          <Route path="/profile" element={<CandidateProfilePage />} />
+          <Route path="/ai-settings" element={<AiSettings />} />
+          <Route path="/admin" element={<Admin />} />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </GmailProvider>
   );
 }

@@ -1,6 +1,7 @@
 import { Outlet, useLocation, NavLink } from "react-router-dom";
 import Sidebar from "../components/Sidebar.jsx";
 import DisabledBanner from "../components/DisabledBanner.jsx";
+import FeatureDisabledPopup from "../components/FeatureDisabledPopup.jsx";
 import HowItWorks from "../components/HowItWorks.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isAdminUser } from "../constants.js";
@@ -15,7 +16,7 @@ const pageNames = {
   "/followups": "Follow-ups",
   "/interviews": "Interviews",
   "/profile": "Candidate Profile",
-  "/ai-settings": "Config",
+  "/ai-settings": "Settings",
   "/admin": "Admin",
 };
 
@@ -28,6 +29,7 @@ export default function DashboardLayout() {
   return (
     <div className="min-h-screen lg:flex bg-primary">
       <DisabledBanner />
+      <FeatureDisabledPopup />
       <Sidebar />
       <main className="flex-1 min-w-0">
         {/* Desktop top bar */}

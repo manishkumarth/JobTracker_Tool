@@ -178,6 +178,11 @@ router.patch("/users/:id/enable-all-features", adminGuard, async (req, res) => {
     }
 
     Object.keys(user.features).forEach((k) => { user.features[k] = true; });
+    // Undo the blanket disable that disable-all-features applied
+    if (user.isDisabled && user.disabledReason === "All features disabled by admin") {
+      user.isDisabled = false;
+      user.disabledReason = "";
+    }
     await user.save();
 
     res.json({ user: { _id: user._id, isDisabled: user.isDisabled, features: user.features } });

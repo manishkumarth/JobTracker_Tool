@@ -5,6 +5,7 @@ import { sendMail } from "../api/emails.js";
 import { listTemplates } from "../api/templates.js";
 import { listResumes } from "../api/resumes.js";
 import { getProfile } from "../api/profile.js";
+import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const replaceVariables = (text, app) => {
   if (!text) return text;
@@ -20,6 +21,7 @@ const replaceVariables = (text, app) => {
 };
 
 export default function AIEmailGenerator({ application, onSent }) {
+  const { requireGmail } = useGmailGuard();
   const [tone, setTone] = useState("professional");
   const [length, setLength] = useState("short");
   const [subject, setSubject] = useState("");
@@ -94,6 +96,7 @@ export default function AIEmailGenerator({ application, onSent }) {
     const hasHrEmail = !!application.hrEmail;
     if (!hasContact && !hasHrEmail) return toast.error("This application has no linked contact or HR email. Add one from the HR section.");
     if (!subject || !body) return toast.error("Generate or write an email first");
+    if (!requireGmail()) return;
 
     setSending(true);
     try {

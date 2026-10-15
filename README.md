@@ -69,7 +69,7 @@ uploaded resumes — or upload a new PDF on the spot.
 - Greeting rule: uses the recruiter's name, or falls back to *"Dear Hiring Team,"* / *"Dear Hiring Manager,"*
 
 ### Master prompt
-Your own instructions (Config → Master Prompt, also editable on Candidate Profile)
+Your own instructions (Settings → Master Prompt, also editable on Candidate Profile)
 that every AI email and follow-up follows — for example *"always sign off as
 Thanks, Manish"* or *"never mention salary expectations"*. Stored in your profile,
 not hardcoded in the backend.
@@ -90,6 +90,10 @@ and clicks are counted and shown per email. The attached resume's name and size 
 recorded and displayed in Email History.
 
 ### Everything else
+- Gmail App Password setup popup — step-by-step guide plus an admin-configurable
+  YouTube video, shown whenever you try to send without Gmail connected
+- Admin per-user feature switches (send email, AI email, auto follow-ups, resume
+  upload, quick fill) with a "contact support" popup when a feature is blocked
 - Email templates with `{{variables}}` — plus **5 sample templates** in one click
 - Companies, Contacts (with duplicate detection), Calls, Interviews and rounds
 - Dashboard counters, recent activity and upcoming events
@@ -150,6 +154,7 @@ JobTracker_Tool/
     ├── server.js               Local Express entry
     ├── config/db.js            Mongoose connection (reused across invocations)
     ├── middleware/auth.js      JWT + disabled-account guard
+    │              featureGuard.js  per-feature 403 guard (admin switches)
     ├── models/                 User, CandidateProfile, Application, Company,
     │                           Contact, EmailLog, EmailTemplate, FollowUp,
     │                           Call, Interview, WhatsAppMessage
@@ -163,7 +168,7 @@ JobTracker_Tool/
     ├── vite.config.js
     └── src/
         ├── main.jsx / App.jsx
-        ├── context/           AuthContext, ThemeContext
+        ├── context/           AuthContext, ThemeContext, GmailContext
         ├── layouts/           DashboardLayout
         ├── components/        ApplicationFormModal, AIEmailGenerator,
         │                      HowItWorks, DisabledBanner, Sidebar, …
@@ -248,10 +253,10 @@ Runs on http://localhost:5173 — open it in your browser.
 ### 7. Create your account and connect Gmail
 
 1. Sign up at http://localhost:5173/signup
-2. Go to **Config** in the sidebar
+2. Go to **Settings** in the sidebar
 3. Connect your Gmail address with a **Gmail App Password**
    (Google Account → Security → 2-Step Verification → App passwords)
-4. Add an AI provider key (e.g. Gemini, OpenRouter) in **Config → AI Providers**
+4. Add an AI provider key (e.g. Gemini, OpenRouter) in **Settings → AI Providers**
 5. Go to **Candidate Profile** and fill in your real skills, experience and projects
 6. Upload your resumes on the same page and tag each with the roles it fits
 
@@ -293,7 +298,7 @@ happens automatically.
 ### Adding an AI provider
 
 Keys are **per-user** and encrypted at rest (AES-256-GCM). Add them in
-**Config → AI Providers** in the UI — no env var or redeploy required. The first
+**Settings → AI Providers** in the UI — no env var or redeploy required. The first
 user key added becomes the active provider; the server's `GEMINI_API_KEY` is only
 used as a fallback when no key is set.
 
@@ -380,13 +385,21 @@ A single hardcoded account, `manish12099@gmail.com`, automatically receives
 
 - **Admin** link in the sidebar and top bar
 - **Admin Access** page listing every user with their application and resume counts
+- **Per-user feature switches** — tick or untick *Send Email*, *AI Email*,
+  *Auto Follow-up*, *Resume Upload* and *Quick Fill* per user, or flip them all
+  off/on with one click. A blocked feature returns 403 `featureDisabled` and the
+  user instantly sees a "contact support" popup
+- **Gmail setup video** — paste a YouTube link and it is embedded in the
+  "Connect Gmail" popup (and in Settings → Gmail Connection) so users can watch
+  how to create an App Password
 - **Disable** an account — that user instantly loses the ability to send email or
   use AI, and sees a support popup with contact details
 - **Enable** a previously disabled account
 - **Delete** a user along with all their data (applications, contacts, emails,
   resumes, follow-ups, templates, interviews, calls)
 
-The admin account itself can never be disabled or deleted accidentally.
+The admin account itself can never be disabled or deleted accidentally, and its
+feature switches cannot be changed.
 
 If a user's account is disabled, `middleware/auth.js` blocks every route except
 `/auth/me` (so the client can still detect the state and show the popup), and
@@ -442,6 +455,11 @@ header unless noted.
 | GET | `/admin/users` | List all users — **admin only** |
 | PATCH | `/admin/users/:id/disable` | Disable a user — **admin only** |
 | PATCH | `/admin/users/:id/enable` | Enable a user — **admin only** |
+| PATCH | `/admin/users/:id/features` | Toggle one feature on/off — **admin only** |
+| PATCH | `/admin/users/:id/disable-all-features` | Turn every feature off at once — **admin only** |
+| PATCH | `/admin/users/:id/enable-all-features` | Turn every feature back on — **admin only** |
+| GET | `/admin/app-video` | Gmail setup YouTube URL (any authenticated user) |
+| PUT | `/admin/app-video` | Set the Gmail setup YouTube URL — **admin only** |
 | DELETE | `/admin/users/:id` | Delete user + data — **admin only** |
 | GET | `/cron/auto-followup` | Vercel Cron target (honors `CRON_SECRET`) |
 
@@ -463,6 +481,9 @@ another's data.
   recruiter.
 - **Disabled accounts are hard-blocked.** The auth middleware returns 403 on every
   route except `/auth/me`, so a disabled user cannot send email or use AI at all.
+- **Feature switches are enforced server-side.** `middleware/featureGuard.js`
+  returns 403 `featureDisabled` on every guarded route when the admin switched
+  that feature off — regardless of what the UI shows. Admins always bypass.
 - **Gmail's own sending limits still apply** (~500/day on a regular account). This
   is a personal outreach tool, not a bulk marketing sender.
 

@@ -38,7 +38,6 @@ export default function GmailSetupPopup({ onClose, onConnected }) {
     onClose?.();
     onConnected?.();
   };
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content p-6 space-y-5 max-w-lg" onClick={(e) => e.stopPropagation()}>
@@ -95,7 +94,7 @@ export default function GmailSetupPopup({ onClose, onConnected }) {
 
         <div className="flex items-center gap-2 pt-2 border-t border-color">
           <button onClick={goToConfig} className="btn btn-primary btn-sm flex-1">
-            Open Config to connect Gmail
+            Open Settings to connect Gmail
           </button>
           <button onClick={onClose} className="btn btn-ghost btn-sm">
             Later

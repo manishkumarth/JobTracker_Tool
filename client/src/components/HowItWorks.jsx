@@ -34,7 +34,7 @@ const STEPS = [
   },
   {
     title: "3. Connect Gmail + an AI provider",
-    text: "Connect your Gmail app password and add any AI API key in Config. Emails are sent from your own address.",
+    text: "Connect your Gmail app password and add any AI API key in Settings. Emails are sent from your own address.",
     icon: "plug",
   },
   {

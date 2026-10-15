@@ -8,6 +8,7 @@ import {
 } from "../api/emails.js";
 import EmptyState from "../components/EmptyState.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
+import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const STATUSES = ["Draft", "Pending", "Sent", "Failed"];
 const TYPES = [
@@ -76,6 +77,7 @@ const MailIcon = () => (
 );
 
 export default function EmailHistory() {
+  const { requireGmail } = useGmailGuard();
   const [data, setData] = useState({ emails: [], pages: 1 });
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -143,6 +145,7 @@ export default function EmailHistory() {
     if (!replyState || !replyState.message.trim() || !replyState.contactIds.length) {
       return toast.error("Please fill in all required fields");
     }
+    if (!requireGmail()) return;
     try {
       await replyToEmail(replyState);
       toast.success("Reply sent");

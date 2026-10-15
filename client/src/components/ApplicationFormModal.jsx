@@ -6,6 +6,7 @@ import { listContacts, createContact } from "../api/contacts.js";
 import { parseLinkedIn, generateEmail } from "../api/ai.js";
 import { listResumes, uploadResume } from "../api/resumes.js";
 import { sendMail } from "../api/emails.js";
+import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const JOB_SOURCES = ["Naukri", "LinkedIn", "Indeed", "Company Website", "Referral", "Recruiter", "Email", "Other"];
 const WORK_MODES = ["Remote", "Hybrid", "On-site"];
@@ -13,6 +14,7 @@ const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Contract", "Internship"];
 const PRIORITIES = ["Low", "Medium", "High", "Urgent"];
 
 export default function ApplicationFormModal({ onClose, onSaved }) {
+  const { requireGmail } = useGmailGuard();
   const [companies, setCompanies] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -121,6 +123,7 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
   };
 
   const handleAutoProcess = async () => {
+    if (!requireGmail()) return;
     setAutoProcessing(true);
     try {
       setAutoProcessStep("Generating email...");

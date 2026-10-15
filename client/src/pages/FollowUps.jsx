@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { listFollowUps, completeFollowUp, cancelFollowUp, sendFollowUpEmail } from "../api/followups.js";
 import EmptyState from "../components/EmptyState.jsx";
+import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const TABS = [
   { key: "overdue", label: "Overdue", badgeClass: "badge-danger" },
@@ -29,6 +30,7 @@ function getDueCategory(dateStr) {
 }
 
 export default function FollowUps() {
+  const { requireGmail } = useGmailGuard();
   const [tab, setTab] = useState("today");
   const [followUps, setFollowUps] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -83,6 +85,7 @@ export default function FollowUps() {
   };
 
   const sendOne = async (id) => {
+    if (!requireGmail()) return;
     setSendingIds((prev) => [...prev, id]);
     try {
       await sendFollowUpEmail(id);
@@ -104,6 +107,7 @@ export default function FollowUps() {
     if (!targets.length) {
       return toast.error(autoSend ? "No unsent follow-ups" : "Select at least one follow-up");
     }
+    if (!requireGmail()) return;
     setBulkSending(true);
     let ok = 0;
     for (const id of targets) {
