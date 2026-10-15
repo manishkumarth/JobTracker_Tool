@@ -25,6 +25,12 @@ const getUserProviders = async (userId) => {
   return user?.aiProviders || [];
 };
 
+// Appends the user's own master prompt (stored in their profile) to any AI prompt.
+const masterPromptBlock = (profile) =>
+  profile?.masterPrompt?.trim()
+    ? `\n\nUSER MASTER PROMPT (always follow these instructions):\n${profile.masterPrompt.trim()}\n`
+    : "";
+
 // Builds the anti-hallucination guardrail block shared by every prompt.
 const candidateFactsBlock = (profile) => `
 CANDIDATE FACTS (the ONLY truth you may use about the candidate — never invent anything beyond this):
@@ -85,7 +91,7 @@ Tone: ${tone || "professional"}
 Length: ${length || "short"} (short = under 150 words, medium = 150-250 words)
 
 Write a job application email. Only mention candidate skills/experience that genuinely overlap with what the job needs, drawn strictly from the candidate facts above.
-
+${masterPromptBlock(profile)}
 ${JSON_ONLY}, in exactly this shape:
 {"subject": "...", "body": "..."}`.trim();
 
@@ -124,7 +130,7 @@ Recruiter: ${application.hrName || "(unknown)"}
 Original email sent: ${originalEmail?.subject ? `Subject: ${originalEmail.subject}` : "(not on file)"}
 
 Write a brief, professional follow-up email (under 100 words) checking in on the application status, referencing the original application politely without being pushy.
-
+${masterPromptBlock(profile)}
 ${JSON_ONLY}:
 {"subject": "...", "body": "..."}`.trim();
 

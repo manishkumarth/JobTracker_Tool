@@ -169,7 +169,7 @@ export default function EmailHistory() {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="card p-4 stat-gradient-1">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-brand-100 dark:bg-brand-900/40 flex items-center justify-center text-brand-600 dark:text-brand-400">
@@ -212,8 +212,8 @@ export default function EmailHistory() {
       </div>
 
       {/* Search + Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
+        <div className="relative flex-1 min-w-[200px]">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted"
             fill="none"
@@ -229,7 +229,7 @@ export default function EmailHistory() {
           </svg>
           <input
             placeholder="Search subject or recipient..."
-            className="input pl-9"
+            className="input pl-9 w-full"
             value={search}
             onChange={(e) => {
               setPage(1);
@@ -238,7 +238,7 @@ export default function EmailHistory() {
           />
         </div>
         <select
-          className="input sm:w-44"
+          className="input sm:w-44 w-full"
           value={status}
           onChange={(e) => {
             setPage(1);
@@ -253,7 +253,7 @@ export default function EmailHistory() {
           ))}
         </select>
         <select
-          className="input sm:w-48"
+          className="input sm:w-48 w-full"
           value={emailType}
           onChange={(e) => {
             setPage(1);
@@ -522,6 +522,26 @@ export default function EmailHistory() {
                 {selected.body}
               </p>
             </div>
+
+            {/* Attached resume */}
+            {selected.resumeName && (
+              <div className="bg-tertiary rounded-xl p-4 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-brand-100 dark:bg-brand-900/40 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-brand-600 dark:text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted">Attached resume</p>
+                  <p className="text-sm font-medium text-primary truncate">{selected.resumeName}</p>
+                </div>
+                {selected.resumeSize > 0 && (
+                  <span className="ml-auto text-xs text-muted shrink-0">
+                    {(selected.resumeSize / 1024).toFixed(0)} KB
+                  </span>
+                )}
+              </div>
+            )}
 
             {selected.errorMessage && (
               <div className="bg-danger-light dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">

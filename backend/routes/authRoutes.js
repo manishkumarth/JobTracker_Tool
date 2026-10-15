@@ -26,7 +26,14 @@ router.post("/signup", async (req, res) => {
     const token = signToken(user._id);
     res.status(201).json({
       token,
-      user: { id: user._id, name: user.name, email: user.email, gmailConnected: user.gmailConnected },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        gmailConnected: user.gmailConnected,
+        isAdmin: user.isAdmin,
+        isDisabled: user.isDisabled,
+      },
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -46,7 +53,15 @@ router.post("/login", async (req, res) => {
     const token = signToken(user._id);
     res.json({
       token,
-      user: { id: user._id, name: user.name, email: user.email, gmailConnected: user.gmailConnected, gmailAddress: user.gmailAddress },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        gmailConnected: user.gmailConnected,
+        gmailAddress: user.gmailAddress,
+        isAdmin: user.isAdmin,
+        isDisabled: user.isDisabled,
+      },
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

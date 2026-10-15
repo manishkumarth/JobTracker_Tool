@@ -20,6 +20,8 @@ import calendarRoutes from "./routes/calendarRoutes.js";
 import resumeRoutes from "./routes/resumeRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import whatsappRoutes from "./routes/whatsappRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import cronRoutes from "./routes/cronRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -46,6 +48,8 @@ app.use("/api/calendar", calendarRoutes);
 app.use("/api/resumes", resumeRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/cron", cronRoutes);
 
 app.get("/", (req, res) => res.send("Job Application CRM API running"));
 

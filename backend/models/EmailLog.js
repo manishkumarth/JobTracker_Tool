@@ -35,6 +35,8 @@ const emailLogSchema = new mongoose.Schema(
     isAiGenerated: { type: Boolean, default: false },
     template: { type: mongoose.Schema.Types.ObjectId, ref: "EmailTemplate", default: null },
     attachmentName: { type: String, default: "" },
+    resumeName: { type: String, default: "" },
+    resumeSize: { type: Number, default: 0 },
 
     trackingId: { type: String, unique: true, sparse: true, index: true },
     trackingEnabled: { type: Boolean, default: true },

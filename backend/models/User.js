@@ -11,6 +11,11 @@ const userSchema = new mongoose.Schema(
     gmailAppPasswordEnc: { type: String, default: "" }, // encrypted app password
     gmailConnected: { type: Boolean, default: false },
 
+    // Account status / admin
+    isAdmin: { type: Boolean, default: false },
+    isDisabled: { type: Boolean, default: false },
+    disabledReason: { type: String, default: "" },
+
     // AI provider keys (encrypted at rest)
     aiProviders: [{
       provider: { type: String, required: true }, // e.g. "openrouter", "openai", "gemini", "anthropic", "groq", "deepseek", "together"

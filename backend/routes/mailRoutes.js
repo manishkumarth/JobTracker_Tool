@@ -89,12 +89,16 @@ router.post("/send", async (req, res) => {
 
     // Build attachments - all in memory, no disk writes
     let attachments = [];
+    let resumeName = "";
+    let resumeSize = 0;
     if (resumeId) {
       const profile = await CandidateProfile.findOne({ owner: req.userId });
       const resume = profile?.resumes?.id(resumeId);
       if (resume) {
         const buffer = await fetchBuffer(resume.cloudinaryUrl);
         attachments.push({ filename: resume.originalName, content: buffer });
+        resumeName = resume.originalName;
+        resumeSize = resume.size || 0;
       }
     } else if (attachmentFilename) {
       // In-memory upload buffer passed via req.file
@@ -123,6 +127,8 @@ router.post("/send", async (req, res) => {
         isAiGenerated,
         template: templateId || null,
         attachmentName: attachments[0]?.filename || "",
+        resumeName,
+        resumeSize,
         trackingId,
         trackingEnabled,
       });

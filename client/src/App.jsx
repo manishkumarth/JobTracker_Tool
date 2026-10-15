@@ -14,6 +14,7 @@ import FollowUps from "./pages/FollowUps.jsx";
 import Interviews from "./pages/Interviews.jsx";
 import CandidateProfilePage from "./pages/CandidateProfilePage.jsx";
 import AiSettings from "./pages/AiSettings.jsx";
+import Admin from "./pages/Admin.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/interviews" element={<Interviews />} />
         <Route path="/profile" element={<CandidateProfilePage />} />
         <Route path="/ai-settings" element={<AiSettings />} />
+        <Route path="/admin" element={<Admin />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

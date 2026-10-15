@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext.jsx";
+import HowItWorks from "../components/HowItWorks.jsx";
 
 export default function Login() {
   const { login } = useAuth();
@@ -60,16 +61,16 @@ export default function Login() {
                 />
               </svg>
             </div>
-            <span className="text-3xl font-bold text-brand-800 tracking-tight">
+            <span className="text-3xl font-bold text-brand-800 dark:text-brand-100 tracking-tight">
               JobTrackr
             </span>
           </div>
-          <h2 className="text-4xl font-extrabold text-brand-900 leading-tight mb-4">
+          <h2 className="text-4xl font-extrabold text-brand-900 dark:text-white leading-tight mb-4">
             Manage your mail
             <br />
-            <span className="text-brand-600">like a pro</span>
+            <span className="text-brand-600 dark:text-brand-300">like a pro</span>
           </h2>
-          <p className="text-brand-700/70 text-lg max-w-sm mx-auto">
+          <p className="text-brand-700/70 dark:text-brand-200/80 text-lg max-w-sm mx-auto">
             Track applications, automate follow-ups, and land your dream job
             faster.
           </p>
@@ -183,6 +184,10 @@ export default function Login() {
                 Create one
               </Link>
             </p>
+
+            <div className="pt-4 border-t border-color flex justify-center">
+              <HowItWorks defaultOpen />
+            </div>
           </div>
         </div>
       </div>

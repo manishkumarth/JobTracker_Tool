@@ -13,6 +13,12 @@
       }
     }
   ],
+  "crons": [
+    {
+      "path": "/api/cron/auto-followup",
+      "schedule": "0 9 * * *"
+    }
+  ],
   "routes": [
     {
       "src": "/api/(.*)",

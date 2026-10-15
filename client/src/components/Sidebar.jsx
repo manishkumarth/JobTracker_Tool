@@ -180,6 +180,35 @@ export default function Sidebar() {
               )}
             </NavLink>
           ))}
+
+          {user?.isAdmin && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                `group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? "bg-danger-light text-danger"
+                    : "text-danger hover:bg-danger-light"
+                }`
+              }
+              onClick={() => setOpen(false)}
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-danger rounded-full" />
+                  )}
+                  <span className="flex-shrink-0">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 2l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-4z" />
+                      <path d="M10 7v3M10 13h.01" />
+                    </svg>
+                  </span>
+                  <span className="truncate">Admin Access</span>
+                </>
+              )}
+            </NavLink>
+          )}
         </div>
       </nav>
 

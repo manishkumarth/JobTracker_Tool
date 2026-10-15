@@ -1,15 +1,30 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { getProfile, updateProfile, parseCloudinaryResume } from "../api/profile.js";
-import { listResumes, uploadResume, setDefaultResume, deleteResume } from "../api/resumes.js";
+import { listResumes, uploadResume, setDefaultResume, updateResume, deleteResume } from "../api/resumes.js";
 
 const arrToStr = (arr) => (arr || []).join(", ");
 const strToArr = (str) => str.split(",").map((s) => s.trim()).filter(Boolean);
 
-function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete }) {
+function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSaveNotes }) {
   const isParsing = parsingId === resume._id;
+  const [notes, setNotes] = useState(resume.notes || "");
+  const [editing, setEditing] = useState(false);
+
+  const saveNotes = async () => {
+    setEditing(false);
+    if (notes === (resume.notes || "")) return;
+    try {
+      await onSaveNotes(resume._id, notes);
+      toast.success("Resume notes saved");
+    } catch {
+      toast.error("Failed to save notes");
+    }
+  };
+
   return (
-    <div className="flex items-center gap-3 p-3 bg-tertiary rounded-lg">
+    <div className="p-3 bg-tertiary rounded-lg space-y-2">
+      <div className="flex items-center gap-3">
       <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
         <svg className="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -53,6 +68,31 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete }) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
         </button>
+      </div>
+      </div>
+
+      {/* Role notes — used for automatic resume selection */}
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-muted shrink-0 w-14">Use for:</span>
+        {editing ? (
+          <input
+            autoFocus
+            className="input text-xs flex-1 py-1"
+            placeholder="e.g. React Developer, Frontend, Fullstack"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={saveNotes}
+            onKeyDown={(e) => e.key === "Enter" && saveNotes()}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="flex-1 text-left text-xs text-secondary hover:text-primary px-2 py-1 rounded hover:bg-tertiary transition-colors"
+          >
+            {resume.notes ? resume.notes : "Add roles this resume fits..."}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -191,6 +231,11 @@ export default function CandidateProfilePage() {
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to set default");
     }
+  };
+
+  const handleSaveResumeNotes = async (resumeId, notes) => {
+    const { resume } = await updateResume(resumeId, { notes });
+    setResumes((prev) => prev.map((r) => (r._id === resumeId ? { ...r, notes: resume.notes } : r)));
   };
 
   const handleDeleteResume = async (resumeId) => {
@@ -346,6 +391,7 @@ export default function CandidateProfilePage() {
                       onParse={handleParseFromCloudinary}
                       onSetDefault={handleSetDefault}
                       onDelete={handleDeleteResume}
+                      onSaveNotes={handleSaveResumeNotes}
                     />
                   ))}
                 </div>

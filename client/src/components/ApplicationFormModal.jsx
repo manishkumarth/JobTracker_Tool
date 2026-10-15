@@ -157,10 +157,13 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         keywords.some((kw) => titleText.includes(kw))
       );
 
+      const resumeText = (r) =>
+        `${r.originalName} ${r.notes || ""}`.toLowerCase();
+
       if (matchedGroups.length > 0) {
         const allMatchedKeywords = matchedGroups.flat();
         selectedResume = resumeList.find((r) =>
-          allMatchedKeywords.some((kw) => r.originalName.toLowerCase().includes(kw))
+          allMatchedKeywords.some((kw) => resumeText(r).includes(kw))
         );
       }
 
@@ -171,7 +174,7 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         if (descGroups.length > 0) {
           const allMatchedKeywords = descGroups.flat();
           selectedResume = resumeList.find((r) =>
-            allMatchedKeywords.some((kw) => r.originalName.toLowerCase().includes(kw))
+            allMatchedKeywords.some((kw) => resumeText(r).includes(kw))
           );
         }
       }
@@ -197,13 +200,20 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
   const finishAutoProcess = async (resume, emailData) => {
     setAutoProcessing(true);
     try {
-      setAutoProcessStep("Saving application...");
-      const { application } = await saveApplication();
+      setAutoProcessStep("Saving application & contact...");
+      const { application, contactId } = await saveApplication();
+
+      if (!form.hrEmail.trim() && !contactId) {
+        toast.success("Application saved. No recruiter email found — email not sent.");
+        onSaved();
+        onClose();
+        return;
+      }
 
       setAutoProcessStep("Sending email...");
       await sendMail({
-        recipientEmail: form.hrEmail,
-        recipientName: form.hrName,
+        recipientEmail: form.hrEmail.trim(),
+        recipientName: form.hrName.trim(),
         subject: emailData.subject,
         message: emailData.body,
         resumeId: resume._id,
@@ -423,7 +433,7 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
             >
               {resumeList.map((r) => (
                 <option key={r._id} value={r._id}>
-                  {r.originalName} ({(r.size / 1024).toFixed(0)} KB) {r.isDefault && "— Default"}
+                  {r.originalName} ({(r.size / 1024).toFixed(0)} KB){r.notes ? ` — ${r.notes}` : ""}{r.isDefault ? " — Default" : ""}
                 </option>
               ))}
             </select>

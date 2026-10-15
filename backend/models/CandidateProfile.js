@@ -8,6 +8,7 @@ const resumeSchema = new mongoose.Schema(
     cloudinaryUrl: { type: String, required: true },
     size: { type: Number },
     isDefault: { type: Boolean, default: false },
+    notes: { type: String, default: "" },
     uploadedAt: { type: Date, default: Date.now },
   },
   { _id: true }
@@ -29,6 +30,7 @@ const candidateProfileSchema = new mongoose.Schema(
     linkedin: { type: String, default: "" },
     resumeText: { type: String, default: "" },
     additionalInfo: { type: String, default: "" },
+    masterPrompt: { type: String, default: "" },
     resumes: [resumeSchema],
   },
   { timestamps: true }

@@ -55,6 +55,24 @@ router.get("/", async (req, res) => {
   }
 });
 
+// PATCH /api/resumes/:resumeId - Update resume metadata (e.g. notes)
+router.patch("/:resumeId", async (req, res) => {
+  try {
+    const profile = await CandidateProfile.findOne({ owner: req.userId });
+    if (!profile) return res.status(404).json({ message: "Profile not found" });
+
+    const resume = profile.resumes.id(req.params.resumeId);
+    if (!resume) return res.status(404).json({ message: "Resume not found" });
+
+    if (req.body.notes !== undefined) resume.notes = req.body.notes;
+    await profile.save();
+
+    res.json({ resume });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // PATCH /api/resumes/:resumeId/default - Set a resume as default
 router.patch("/:resumeId/default", async (req, res) => {
   try {

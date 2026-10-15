@@ -1,8 +1,66 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { getProviders, saveProvider, deleteProvider, activateProvider, testProvider } from "../api/settings.js";
+import { getProfile, updateProfile } from "../api/profile.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import api from "../api/axios.js";
+
+function MasterPromptSection() {
+  const [prompt, setPrompt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    getProfile()
+      .then((p) => setPrompt(p.masterPrompt || ""))
+      .catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setBusy(true);
+    try {
+      await updateProfile({ masterPrompt: prompt });
+      toast.success("Master prompt saved");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to save prompt");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card p-6 space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center shrink-0">
+          <svg className="w-5 h-5 text-brand-600 dark:text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+          </svg>
+        </div>
+        <div>
+          <h2 className="text-sm font-bold text-primary">Master Prompt</h2>
+          <p className="text-xs text-muted">Your own instructions that every AI email follows. Stored in your profile.</p>
+        </div>
+      </div>
+
+      <textarea
+        rows={6}
+        className="input w-full font-mono text-xs"
+        placeholder="e.g. Always keep emails under 120 words. Sign off as 'Thanks, Manish'. Never mention salary expectations."
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+      />
+
+      <div className="flex items-center gap-3">
+        <button onClick={handleSave} disabled={busy} className="btn btn-primary btn-sm">
+          {busy ? "Saving..." : saved ? "Saved!" : "Save master prompt"}
+        </button>
+        <span className="text-[11px] text-muted">Applied to email generation and follow-ups.</span>
+      </div>
+    </div>
+  );
+}
 
 const PROVIDER_ICONS = {
   openrouter: "🔀",
@@ -259,6 +317,9 @@ export default function AiSettings() {
           </p>
         </div>
       </div>
+
+      {/* Master Prompt */}
+      <MasterPromptSection />
 
       {/* Gmail Section */}
       <GmailSection />

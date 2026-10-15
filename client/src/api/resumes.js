@@ -7,4 +7,5 @@ export const uploadResume = (file) => {
   return api.post("/resumes/upload", formData, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
 };
 export const setDefaultResume = (resumeId) => api.patch(`/resumes/${resumeId}/default`).then((r) => r.data);
+export const updateResume = (resumeId, data) => api.patch(`/resumes/${resumeId}`, data).then((r) => r.data);
 export const deleteResume = (resumeId) => api.delete(`/resumes/${resumeId}`).then((r) => r.data);
