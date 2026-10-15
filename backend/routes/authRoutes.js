@@ -75,6 +75,7 @@ router.post("/login", async (req, res) => {
         gmailAddress: user.gmailAddress,
         isAdmin: user.isAdmin,
         isDisabled: user.isDisabled,
+        features: user.features,
       },
     });
   } catch (err) {

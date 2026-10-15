@@ -4,10 +4,12 @@ import CandidateProfile from "../models/CandidateProfile.js";
 import Application from "../models/Application.js";
 import EmailLog from "../models/EmailLog.js";
 import authMiddleware from "../middleware/auth.js";
+import { requireFeature } from "../middleware/featureGuard.js";
 import { callLLM, parseJson } from "../utils/llmClient.js";
 
 const router = express.Router();
 router.use(authMiddleware);
+router.use(requireFeature("aiEmail"));
 
 const cleanAiError = (res, err) => {
   console.error("LLM error:", err.message);
@@ -228,7 +230,7 @@ ${JSON_ONLY}, in exactly this shape:
 });
 
 // POST /api/ai/parse-linkedin
-router.post("/parse-linkedin", async (req, res) => {
+router.post("/parse-linkedin", requireFeature("quickFill"), async (req, res) => {
   try {
     const { text, provider, model } = req.body;
     if (!text || !text.trim()) return res.status(400).json({ message: "text is required" });

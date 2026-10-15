@@ -4,6 +4,7 @@ import CandidateProfile from "../models/CandidateProfile.js";
 import Contact from "../models/Contact.js";
 import Company from "../models/Company.js";
 import authMiddleware from "../middleware/auth.js";
+import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
 
 const router = express.Router();
@@ -177,7 +178,7 @@ router.post("/bulk/followup", async (req, res) => {
 });
 
 // POST /api/applications/bulk/send-followups  -> bulk send follow-up emails
-router.post("/bulk/send-followups", async (req, res) => {
+router.post("/bulk/send-followups", requireFeature("autoFollowUp"), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!ids?.length) return res.status(400).json({ message: "ids are required" });

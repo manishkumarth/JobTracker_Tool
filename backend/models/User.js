@@ -16,6 +16,15 @@ const userSchema = new mongoose.Schema(
     isDisabled: { type: Boolean, default: false },
     disabledReason: { type: String, default: "" },
 
+    // Per-user feature switches, toggled by the admin
+    features: {
+      sendEmail: { type: Boolean, default: true },   // send any email via Gmail
+      aiEmail: { type: Boolean, default: true },      // AI generate + refine
+      autoFollowUp: { type: Boolean, default: true }, // send/manage follow-ups
+      resumeUpload: { type: Boolean, default: true }, // upload / parse resumes
+      quickFill: { type: Boolean, default: true },    // LinkedIn quick fill
+    },
+
     // AI provider keys (encrypted at rest)
     aiProviders: [{
       provider: { type: String, required: true }, // e.g. "openrouter", "openai", "gemini", "anthropic", "groq", "deepseek", "together"

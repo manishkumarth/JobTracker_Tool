@@ -6,4 +6,15 @@ export const disableUser = (id, reason) =>
 export const enableUser = (id) =>
   api.patch(`/admin/users/${id}/enable`).then((r) => r.data);
 export const deleteUser = (id) => api.delete(`/admin/users/${id}`).then((r) => r.data);
-export const runAutoFollowUp = () => api.post("/cron/run-auto-followup").then((r) => r.data);
+
+// Per-user feature switches
+export const setUserFeature = (id, feature, value) =>
+  api.patch(`/admin/users/${id}/features`, { feature, value }).then((r) => r.data);
+export const disableAllFeatures = (id) =>
+  api.patch(`/admin/users/${id}/disable-all-features`).then((r) => r.data);
+export const enableAllFeatures = (id) =>
+  api.patch(`/admin/users/${id}/enable-all-features`).then((r) => r.data);
+
+// Admin-configurable Gmail setup video
+export const getAppVideo = () => api.get("/admin/app-video").then((r) => r.data);
+export const saveAppVideo = (url) => api.put("/admin/app-video", { url }).then((r) => r.data);

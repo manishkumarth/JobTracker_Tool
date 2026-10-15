@@ -3,6 +3,7 @@ import multer from "multer";
 import CandidateProfile from "../models/CandidateProfile.js";
 import User from "../models/User.js";
 import authMiddleware from "../middleware/auth.js";
+import { requireFeature } from "../middleware/featureGuard.js";
 import { parseResumeFromBuffer } from "../utils/resumeParser.js";
 import { callLLM, parseJson } from "../utils/llmClient.js";
 
@@ -115,7 +116,7 @@ router.put("/", async (req, res) => {
 });
 
 // POST /api/profile/parse-resume
-router.post("/parse-resume", upload.single("file"), async (req, res) => {
+router.post("/parse-resume", requireFeature("resumeUpload"), upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
     const basic = await parseResumeFromBuffer(req.file.buffer);
@@ -154,7 +155,7 @@ router.post("/parse-resume", upload.single("file"), async (req, res) => {
 });
 
 // POST /api/profile/parse-cloudinary-resume
-router.post("/parse-cloudinary-resume", async (req, res) => {
+router.post("/parse-cloudinary-resume", requireFeature("resumeUpload"), async (req, res) => {
   try {
     const { cloudinaryUrl, cloudinaryPublicId } = req.body;
     if (!cloudinaryUrl && !cloudinaryPublicId) {

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: the app toggles `.dark` on <html> (see ThemeContext),
+   so Tailwind's `dark:` variant must key off that class — not the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-brand-50: #eef2ff;
   --color-brand-100: #e0e7ff;

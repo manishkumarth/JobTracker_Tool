@@ -6,6 +6,7 @@ import EmailLog from "../models/EmailLog.js";
 import User from "../models/User.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import authMiddleware from "../middleware/auth.js";
+import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
 import { sendFollowUpEmail } from "../utils/followUpSender.js";
 
@@ -116,7 +117,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // POST /api/followups/:id/send - generate + send the AI follow-up email now
-router.post("/:id/send", async (req, res) => {
+router.post("/:id/send", requireFeature("autoFollowUp"), async (req, res) => {
   try {
     const followUp = await FollowUp.findOne({ _id: req.params.id, owner: req.userId });
     if (!followUp) return res.status(404).json({ message: "Follow-up not found" });

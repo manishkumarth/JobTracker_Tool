@@ -1,13 +1,14 @@
 import express from "express";
 import CandidateProfile from "../models/CandidateProfile.js";
 import authMiddleware from "../middleware/auth.js";
+import { requireFeature } from "../middleware/featureGuard.js";
 import { upload, uploadToCloudinary, deleteFromCloudinary, getCloudinaryUrl } from "../utils/cloudinary.js";
 
 const router = express.Router();
 router.use(authMiddleware);
 
 // POST /api/resumes/upload - Upload a new resume
-router.post("/upload", upload.single("file"), async (req, res) => {
+router.post("/upload", requireFeature("resumeUpload"), upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 

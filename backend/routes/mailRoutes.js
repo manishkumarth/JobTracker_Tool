@@ -6,6 +6,7 @@ import Application from "../models/Application.js";
 import EmailLog from "../models/EmailLog.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import authMiddleware from "../middleware/auth.js";
+import { requireFeature } from "../middleware/featureGuard.js";
 import { getTransporter } from "../utils/mailer.js";
 import { logActivity } from "../utils/activity.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "../utils/tracking.js";
@@ -47,7 +48,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // POST /api/mail/send
 // body: { contactIds: [...], subject, message, resumeId?, attachmentFilename?, applicationId?, companyId?,
 //         emailType?, isAiGenerated?, templateId?, allowResend? }
-router.post("/send", async (req, res) => {
+router.post("/send", requireFeature("sendEmail"), async (req, res) => {
   try {
     const {
       contactIds, subject, message, resumeId, attachmentFilename,
@@ -177,7 +178,7 @@ router.post("/send", async (req, res) => {
 });
 
 // POST /api/mail/reply - Reply to an existing email (threaded)
-router.post("/reply", async (req, res) => {
+router.post("/reply", requireFeature("sendEmail"), async (req, res) => {
   try {
     const { parentEmailId, contactIds, subject, message, resumeId, attachmentFilename } = req.body;
     if (!parentEmailId || !contactIds?.length || !message) {
