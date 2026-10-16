@@ -23,6 +23,7 @@ export default function HRReply() {
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [autoDraft, setAutoDraft] = useState(false);
+  const [autoSend, setAutoSend] = useState(false);
 
   useEffect(() => {
     listTemplates().then((d) => setTemplates(Array.isArray(d) ? d : [])).catch(() => {});
@@ -36,20 +37,33 @@ export default function HRReply() {
 
   // Auto-extract a recruiter email from the pasted request
   useEffect(() => {
-    const m = requestText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-    if (m) setRecipientEmail((prev) => (prev ? prev : m[0]));
+    const compact = requestText.replace(/\s+/g, " ");
+    const m = compact.match(/([\w.-]+)\s*@\s*([\w-]+)\s*\.\s*([a-zA-Z]{2,})/i);
+    if (m) {
+      const email = `${m[1]}@${m[2]}.${m[3]}`.replace(/\s+/g, "");
+      setRecipientEmail((prev) => (prev ? prev : email));
+    }
+    const fromMatch = compact.match(/From\s+([A-Za-z][A-Za-z ]{1,40}?)\s+[\w.-]+@/i);
+    if (fromMatch) {
+      setRecipientName((prev) => (prev ? prev : fromMatch[1].trim()));
+    }
   }, [requestText]);
 
   // Auto-draft when the toggle is on
   useEffect(() => {
     if (!autoDraft || requestText.trim().length < 20) return;
     const t = setTimeout(() => {
-      handleGenerate();
+      const tid = templateId || (templates.length ? templates[0]._id : "");
+      if (!templateId && tid) setTemplateId(tid);
+      handleGenerate({ templateId: tid || undefined, autoSend });
     }, 900);
     return () => clearTimeout(t);
-  }, [requestText, autoDraft]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestText, autoDraft, templates, autoSend]);
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (opts = {}) => {
+    const tid = opts.templateId || templateId;
+    const doAutoSend = opts.autoSend ?? autoSend;
     if (!requestText.trim()) {
       toast.error("Paste the recruiter's request first");
       return;
@@ -60,11 +74,29 @@ export default function HRReply() {
         requestText,
         recipientName,
         recipientEmail,
-        templateId: templateId || undefined,
+        templateId: tid || undefined,
       });
       setSubject(data.subject || "");
       setBody(data.body || "");
-      toast.success("Reply drafted - review and send");
+      if (doAutoSend && recipientEmail.trim()) {
+        if (!requireGmail()) {
+          setGenerating(false);
+          return;
+        }
+        const result = await sendMail({
+          recipientEmail: recipientEmail.trim(),
+          recipientName: recipientName.trim(),
+          subject: data.subject || "",
+          message: data.body || "",
+          resumeId: resumeId || undefined,
+          emailType,
+          isAiGenerated: true,
+        });
+        const sent = result?.results?.filter((r) => r.status === "sent").length || 0;
+        toast.success(sent > 0 ? "Reply generated and sent" : "Reply generated but send failed");
+      } else {
+        toast.success("Reply drafted - review and send");
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || "Failed to generate reply");
     } finally {
@@ -128,6 +160,10 @@ export default function HRReply() {
                   className="rounded"
                 />
                 Auto-draft reply as I type
+              </label>
+              <label className="flex items-center gap-2 mt-1 text-xs text-muted">
+                <input type="checkbox" checked={autoSend} onChange={(e) => setAutoSend(e.target.checked)} className="rounded" />
+                Auto-send after drafting
               </label>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
