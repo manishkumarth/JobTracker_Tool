@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import authMiddleware from "../middleware/auth.js";
 import { encrypt } from "../utils/crypto.js";
+import { logUserEvent } from "../utils/userLog.js";
 
 const router = express.Router();
 
@@ -32,6 +33,7 @@ router.post("/signup", async (req, res) => {
     });
 
     const token = signToken(user._id);
+    await logUserEvent(user, "activity", "Account created", {}, req);
     res.status(201).json({
       token,
       user: {
@@ -65,6 +67,7 @@ router.post("/login", async (req, res) => {
     }
 
     const token = signToken(user._id);
+    await logUserEvent(user, "login", "Logged in", {}, req);
     res.json({
       token,
       user: {
@@ -89,6 +92,12 @@ router.get("/me", authMiddleware, async (req, res) => {
   res.json(user);
 });
 
+// POST /api/auth/logout - record the logout time in the user log
+router.post("/logout", authMiddleware, async (req, res) => {
+  await logUserEvent(req.authUser, "logout", "Logged out", {}, req);
+  res.json({ message: "Logged out" });
+});
+
 // POST /api/auth/connect-gmail  (store the user's OWN gmail + app password)
 router.post("/connect-gmail", authMiddleware, async (req, res) => {
   try {
@@ -101,6 +110,7 @@ router.post("/connect-gmail", authMiddleware, async (req, res) => {
     user.gmailAppPasswordEnc = encrypt(appPassword);
     user.gmailConnected = true;
     await user.save();
+    await logUserEvent(user, "activity", `Connected Gmail (${user.gmailAddress})`, {}, req);
     res.json({ message: "Gmail connected", gmailAddress: user.gmailAddress });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -115,6 +125,7 @@ router.post("/disconnect-gmail", authMiddleware, async (req, res) => {
     user.gmailAppPasswordEnc = "";
     user.gmailConnected = false;
     await user.save();
+    await logUserEvent(user, "activity", "Disconnected Gmail", {}, req);
     res.json({ message: "Gmail disconnected" });
   } catch (err) {
     res.status(500).json({ message: err.message });

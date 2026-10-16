@@ -10,6 +10,7 @@ import {
   enableAllFeatures,
   getAppVideo,
   saveAppVideo,
+  getUserLogs,
 } from "../api/admin.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isAdminUser } from "../constants.js";
@@ -94,8 +95,131 @@ function VideoSetting() {
   );
 }
 
+const LOG_TYPE_BADGE = {
+  login: "badge badge-success",
+  logout: "badge badge-neutral",
+  activity: "badge badge-primary",
+};
+
+const LOG_TYPES = [
+  { key: "all", label: "All" },
+  { key: "login", label: "Logins" },
+  { key: "logout", label: "Logouts" },
+  { key: "activity", label: "Activities" },
+];
+
+function UserLogsSection() {
+  const [logs, setLogs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [page, setPage] = useState(1);
+  const [type, setType] = useState("all");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    const t = setTimeout(() => {
+      getUserLogs({ type, search, page, limit: 50 })
+        .then((d) => {
+          setLogs(d.logs || []);
+          setTotal(d.total || 0);
+          setPages(d.pages || 1);
+        })
+        .catch(() => toast.error("Failed to load user logs"))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [type, search, page]);
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="p-4 border-b border-color flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {LOG_TYPES.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => {
+                setType(t.key);
+                setPage(1);
+              }}
+              className={`btn btn-sm ${type === t.key ? "btn-primary" : "btn-secondary"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <input
+          className="input sm:ml-auto sm:w-64"
+          placeholder="Search user or action..."
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
+      </div>
+
+      {loading ? (
+        <div className="p-6 space-y-3">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="skeleton h-12 rounded-lg" />
+          ))}
+        </div>
+      ) : logs.length === 0 ? (
+        <div className="p-6 text-center text-sm text-muted">No logs found.</div>
+      ) : (
+        <>
+          <div className="divide-y divide-color">
+            {logs.map((l) => (
+              <div key={l._id} className="px-4 py-3 flex items-start gap-3">
+                <span className={`${LOG_TYPE_BADGE[l.type] || "badge badge-neutral"} text-[10px] mt-0.5 capitalize shrink-0`}>
+                  {l.type}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-primary break-words">{l.action || l.type}</p>
+                  <p className="text-[11px] text-muted truncate mt-0.5">
+                    {l.name || "Unnamed"} &middot; {l.email}
+                    {l.ip ? ` \u00b7 ${l.ip}` : ""}
+                  </p>
+                </div>
+                <span className="text-[11px] text-muted whitespace-nowrap shrink-0">
+                  {new Date(l.createdAt).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="p-3 px-4 border-t border-color flex items-center justify-between gap-3 text-xs text-muted">
+            <span>
+              {total} entr{total === 1 ? "y" : "ies"} &middot; page {page} of {pages}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                disabled={page <= 1}
+                className="btn btn-secondary btn-sm"
+              >
+                Prev
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(p + 1, pages))}
+                disabled={page >= pages}
+                className="btn btn-secondary btn-sm"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Admin() {
   const { user } = useAuth();
+  const [tab, setTab] = useState("users");
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
@@ -201,11 +325,29 @@ export default function Admin() {
           <h1 className="page-title">Admin Access</h1>
           <p className="page-subtitle">Manage users, their features and app settings.</p>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTab("users")}
+            className={`btn btn-sm ${tab === "users" ? "btn-primary" : "btn-secondary"}`}
+          >
+            Users
+          </button>
+          <button
+            onClick={() => setTab("logs")}
+            className={`btn btn-sm ${tab === "logs" ? "btn-primary" : "btn-secondary"}`}
+          >
+            User Logs
+          </button>
+        </div>
       </div>
 
-      <VideoSetting />
+      {tab === "logs" ? (
+        <UserLogsSection />
+      ) : (
+        <>
+          <VideoSetting />
 
-      <div className="card overflow-hidden">
+          <div className="card overflow-hidden">
         {loading ? (
           <div className="p-6 space-y-3">
             {[...Array(4)].map((_, i) => (
@@ -323,7 +465,9 @@ export default function Admin() {
             })}
           </div>
         )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

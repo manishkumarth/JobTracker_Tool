@@ -6,6 +6,7 @@ import Company from "../models/Company.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
+import { logUserEvent } from "../utils/userLog.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -106,6 +107,7 @@ router.post("/", async (req, res) => {
       owner: req.userId,
       activity: [{ type: "created", message: "Application created", at: new Date() }],
     });
+    await logUserEvent(req.authUser, "activity", `Created application: ${application.jobTitle}${application.companyName ? ` at ${application.companyName}` : ""}`, { applicationId: application._id }, req);
     res.status(201).json(application);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -211,6 +213,7 @@ router.post("/bulk/send-followups", requireFeature("autoFollowUp"), async (req, 
       }
     }
 
+    await logUserEvent(req.authUser, "activity", `Bulk sent ${sent} follow-up email(s)`, { sent, failed }, req);
     res.json({ sent, failed });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -224,6 +227,7 @@ router.post("/bulk/delete", async (req, res) => {
     if (!ids?.length) return res.status(400).json({ message: "ids are required" });
 
     const result = await Application.deleteMany({ _id: { $in: ids }, owner: req.userId });
+    await logUserEvent(req.authUser, "activity", `Deleted ${result.deletedCount} application(s)`, {}, req);
     res.json({ deleted: result.deletedCount });
   } catch (err) {
     res.status(500).json({ message: err.message });

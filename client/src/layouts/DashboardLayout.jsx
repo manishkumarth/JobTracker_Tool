@@ -1,7 +1,9 @@
-import { Outlet, useLocation, NavLink } from "react-router-dom";
+import { useState } from "react";
+import { Outlet, useLocation, NavLink, useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar.jsx";
 import DisabledBanner from "../components/DisabledBanner.jsx";
 import FeatureDisabledPopup from "../components/FeatureDisabledPopup.jsx";
+import GmailSetupPopup from "../components/GmailSetupPopup.jsx";
 import HowItWorks from "../components/HowItWorks.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isAdminUser } from "../constants.js";
@@ -22,7 +24,9 @@ const pageNames = {
 
 export default function DashboardLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuth();
+  const [showGmailHelp, setShowGmailHelp] = useState(false);
   const basePath = "/" + location.pathname.split("/")[1];
   const pageName = pageNames[basePath] || "Dashboard";
 
@@ -30,6 +34,15 @@ export default function DashboardLayout() {
     <div className="min-h-screen lg:flex bg-primary">
       <DisabledBanner />
       <FeatureDisabledPopup />
+      {showGmailHelp && (
+        <GmailSetupPopup
+          onClose={() => setShowGmailHelp(false)}
+          onConnected={() => {
+            setShowGmailHelp(false);
+            navigate("/ai-settings");
+          }}
+        />
+      )}
       <Sidebar />
       <main className="flex-1 min-w-0">
         {/* Desktop top bar */}
@@ -43,6 +56,16 @@ export default function DashboardLayout() {
               </NavLink>
             )}
             <HowItWorks />
+            <button
+              onClick={() => setShowGmailHelp(true)}
+              className="btn btn-secondary btn-sm"
+              title="How to connect your Gmail App Password"
+            >
+              <svg className="w-4 h-4 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" />
+              </svg>
+              <span className="hidden sm:inline">Connect Gmail</span>
+            </button>
           </div>
         </div>
 

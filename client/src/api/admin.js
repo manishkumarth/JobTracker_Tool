@@ -18,3 +18,6 @@ export const enableAllFeatures = (id) =>
 // Admin-configurable Gmail setup video
 export const getAppVideo = () => api.get("/admin/app-video").then((r) => r.data);
 export const saveAppVideo = (url) => api.put("/admin/app-video", { url }).then((r) => r.data);
+
+// User logs (login / logout / activity)
+export const getUserLogs = (params = {}) => api.get("/admin/logs", { params }).then((r) => r.data);

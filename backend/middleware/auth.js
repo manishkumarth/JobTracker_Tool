@@ -13,7 +13,7 @@ const authMiddleware = async (req, res, next) => {
     // Block disabled accounts from performing any action (but allow /auth/me so the
     // client can detect the disabled state and show the support popup)
     const { default: User } = await import("../models/User.js");
-    const user = await User.findById(req.userId).select("isDisabled isAdmin email");
+    const user = await User.findById(req.userId).select("isDisabled isAdmin email name");
     const isMeCheck = req.originalUrl.endsWith("/auth/me") || req.path.endsWith("/me");
     if (user?.isDisabled && !isMeCheck) {
       return res.status(403).json({
@@ -26,6 +26,7 @@ const authMiddleware = async (req, res, next) => {
         },
       });
     }
+    req.authUser = user;
     req.isAdmin = user?.isAdmin || user?.email === "manish12099@gmail.com";
     next();
   } catch (err) {

@@ -8,6 +8,7 @@ import CandidateProfile from "../models/CandidateProfile.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
+import { logUserEvent } from "../utils/userLog.js";
 import { sendFollowUpEmail } from "../utils/followUpSender.js";
 
 const router = express.Router();
@@ -142,6 +143,7 @@ router.post("/:id/send", requireFeature("autoFollowUp"), async (req, res) => {
     }
 
     await FollowUp.findByIdAndUpdate(followUp._id, { status: "Completed" });
+    await logUserEvent(req.authUser, "activity", `Sent follow-up for ${application.jobTitle || "application"}`, { applicationId: application._id, followUpId: followUp._id }, req);
     res.json({ message: "Follow-up sent", subject: result.subject });
   } catch (err) {
     res.status(500).json({ message: err.message });

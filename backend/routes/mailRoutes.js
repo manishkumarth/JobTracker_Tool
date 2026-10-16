@@ -9,6 +9,7 @@ import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { getTransporter } from "../utils/mailer.js";
 import { logActivity } from "../utils/activity.js";
+import { logUserEvent } from "../utils/userLog.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "../utils/tracking.js";
 
 const router = express.Router();
@@ -171,6 +172,9 @@ router.post("/send", requireFeature("sendEmail"), async (req, res) => {
       }
     }
 
+    const sentTotal = results.filter((r) => r.status === "sent").length;
+    await logUserEvent(req.authUser, "activity", `Sent email "${subject}" to ${sentTotal} recipient(s)`, { emailType, isAiGenerated, applicationId: applicationId || null }, req);
+
     res.json({ results });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -273,6 +277,8 @@ router.post("/reply", requireFeature("sendEmail"), async (req, res) => {
         await logActivity(application, "email_sent", `Reply sent to ${results.filter(r => r.status === "sent").length} recipient(s)`);
       }
     }
+
+    await logUserEvent(req.authUser, "activity", `Replied to email "${parentEmail.subject}"`, { parentEmailId: parentEmail._id }, req);
 
     res.json({ results });
   } catch (err) {

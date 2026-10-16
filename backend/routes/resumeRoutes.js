@@ -2,6 +2,7 @@ import express from "express";
 import CandidateProfile from "../models/CandidateProfile.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
+import { logUserEvent } from "../utils/userLog.js";
 import { upload, uploadToCloudinary, deleteFromCloudinary, getCloudinaryUrl } from "../utils/cloudinary.js";
 
 const router = express.Router();
@@ -39,6 +40,7 @@ router.post("/upload", requireFeature("resumeUpload"), upload.single("file"), as
     profile.resumes.push(newResume);
     await profile.save();
 
+    await logUserEvent(req.authUser, "activity", `Uploaded resume: ${req.file.originalname}`, {}, req);
     res.status(201).json({ resume: newResume });
   } catch (err) {
     res.status(500).json({ message: err.message });

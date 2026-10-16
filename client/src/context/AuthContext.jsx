@@ -42,6 +42,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    // Record the logout time server-side (fire-and-forget; token is attached
+    // synchronously by the axios interceptor before we clear it).
+    api.post("/auth/logout").catch(() => {});
     localStorage.removeItem("token");
     setUser(null);
   };

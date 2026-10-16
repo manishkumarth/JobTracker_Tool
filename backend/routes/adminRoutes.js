@@ -9,6 +9,7 @@ import FollowUp from "../models/FollowUp.js";
 import EmailTemplate from "../models/EmailTemplate.js";
 import Interview from "../models/Interview.js";
 import Call from "../models/Call.js";
+import UserLog from "../models/UserLog.js";
 import authMiddleware from "../middleware/auth.js";
 
 const router = express.Router();
@@ -111,6 +112,7 @@ router.delete("/users/:id", adminGuard, async (req, res) => {
     await EmailTemplate.deleteMany({ owner: id });
     await Interview.deleteMany({ owner: id });
     await Call.deleteMany({ owner: id });
+    await UserLog.deleteMany({ user: id });
     await User.findByIdAndDelete(id);
 
     res.json({ message: "User and all associated data deleted" });
@@ -186,6 +188,36 @@ router.patch("/users/:id/enable-all-features", adminGuard, async (req, res) => {
     await user.save();
 
     res.json({ user: { _id: user._id, isDisabled: user.isDisabled, features: user.features } });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ─── User logs (login / logout / activity) ───
+
+// GET /api/admin/logs?type=all|login|logout|activity&userId=&search=&page=&limit=
+router.get("/logs", adminGuard, async (req, res) => {
+  try {
+    const { type = "all", userId = "", search = "", page = 1, limit = 50 } = req.query;
+    const q = {};
+    if (type && type !== "all") q.type = type;
+    if (userId) q.user = userId;
+    if (search) {
+      q.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { action: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const perPage = Math.min(Number(limit) || 50, 200);
+    const skip = (Math.max(Number(page) || 1, 1) - 1) * perPage;
+    const [logs, total] = await Promise.all([
+      UserLog.find(q).sort({ createdAt: -1 }).skip(skip).limit(perPage),
+      UserLog.countDocuments(q),
+    ]);
+
+    res.json({ logs, total, pages: Math.max(Math.ceil(total / perPage), 1) });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

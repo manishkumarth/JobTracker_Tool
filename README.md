@@ -155,14 +155,15 @@ JobTracker_Tool/
     ├── config/db.js            Mongoose connection (reused across invocations)
     ├── middleware/auth.js      JWT + disabled-account guard
     │              featureGuard.js  per-feature 403 guard (admin switches)
-    ├── models/                 User, CandidateProfile, Application, Company,
-    │                           Contact, EmailLog, EmailTemplate, FollowUp,
-    │                           Call, Interview, WhatsAppMessage
+    ├── models/                 User, UserLog, AppSetting, CandidateProfile,
+    │                           Application, Company, Contact, EmailLog,
+    │                           EmailTemplate, FollowUp, Call, Interview,
+    │                           WhatsAppMessage
     ├── routes/                 auth, applications, mail, profile, ai,
     │                           resumes, followups, admin, cron, tracking, …
     └── utils/                  llmClient, llmProviders, resumeParser,
                                 followUpSender, mailer, cloudinary, tracking,
-                                activity, crypto
+                                activity, userLog, crypto
 └── client/
     ├── index.html
     ├── vite.config.js
@@ -392,6 +393,9 @@ A single hardcoded account, `manish12099@gmail.com`, automatically receives
 - **Gmail setup video** — paste a YouTube link and it is embedded in the
   "Connect Gmail" popup (and in Settings → Gmail Connection) so users can watch
   how to create an App Password
+- **User logs** — every login, logout and key activity (applications created,
+  emails/replies/follow-ups sent, resumes uploaded, Gmail connected…) is recorded
+  with time, IP and user-agent and browsable from the **User Logs** tab
 - **Disable** an account — that user instantly loses the ability to send email or
   use AI, and sees a support popup with contact details
 - **Enable** a previously disabled account
@@ -416,6 +420,7 @@ header unless noted.
 |---|---|---|
 | POST | `/auth/signup` | Create account (auto-promotes the admin email) |
 | POST | `/auth/login` | Login, returns `{ token, user }` |
+| POST | `/auth/logout` | Record logout time in the user log |
 | GET | `/auth/me` | Current user (allowed even when disabled) |
 | POST | `/auth/connect-gmail` | Store Gmail address + App Password (encrypted) |
 | GET | `/applications` | List with search, status, company, work-mode, priority, pagination |
@@ -460,6 +465,7 @@ header unless noted.
 | PATCH | `/admin/users/:id/enable-all-features` | Turn every feature back on — **admin only** |
 | GET | `/admin/app-video` | Gmail setup YouTube URL (any authenticated user) |
 | PUT | `/admin/app-video` | Set the Gmail setup YouTube URL — **admin only** |
+| GET | `/admin/logs` | User session/activity logs, filterable & paginated — **admin only** |
 | DELETE | `/admin/users/:id` | Delete user + data — **admin only** |
 | GET | `/cron/auto-followup` | Vercel Cron target (honors `CRON_SECRET`) |
 
