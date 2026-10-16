@@ -22,12 +22,23 @@ import settingsRoutes from "./routes/settingsRoutes.js";
 import whatsappRoutes from "./routes/whatsappRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import cronRoutes from "./routes/cronRoutes.js";
+import extensionRoutes from "./routes/extensionRoutes.js";
 
 dotenv.config();
 connectDB();
 
 const app = express();
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
+const allowedOrigins = [process.env.CLIENT_URL || "http://localhost:5173"];
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("chrome-extension://")) {
+        return cb(null, true);
+      }
+      cb(null, false);
+    },
+  })
+);
 app.use(express.json({ limit: "2mb" }));
 
 app.use("/api/auth", authRoutes);
@@ -50,6 +61,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/cron", cronRoutes);
+app.use("/api/ext", extensionRoutes);
 
 app.get("/", (req, res) => res.send("Job Application CRM API running"));
 

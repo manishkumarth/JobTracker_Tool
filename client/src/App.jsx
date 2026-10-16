@@ -13,6 +13,7 @@ import EmailTemplates from "./pages/EmailTemplates.jsx";
 import FollowUps from "./pages/FollowUps.jsx";
 import Interviews from "./pages/Interviews.jsx";
 import CandidateProfilePage from "./pages/CandidateProfilePage.jsx";
+import HRReply from "./pages/HRReply.jsx";
 import AiSettings from "./pages/AiSettings.jsx";
 import Admin from "./pages/Admin.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/followups" element={<FollowUps />} />
           <Route path="/interviews" element={<Interviews />} />
           <Route path="/profile" element={<CandidateProfilePage />} />
+<Route path="/hr-reply" element={<HRReply />} />
           <Route path="/ai-settings" element={<AiSettings />} />
           <Route path="/admin" element={<Admin />} />
         </Route>

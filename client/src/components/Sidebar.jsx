@@ -88,8 +88,17 @@ const links = [
       </svg>
     ),
   },
+  {
+    to: "/hr-reply",
+    label: "Reply to HR",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 4h14a1 1 0 011 1v10a1 1 0 01-1 1H6l-3 3V5a1 1 0 011-1z" />
+        <path d="M7 8h6M7 11h4" />
+      </svg>
+    ),
+  },
 ];
-
 const configLinks = [
   {
     to: "/ai-settings",

@@ -2,6 +2,7 @@ import express from "express";
 import User from "../models/User.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import Application from "../models/Application.js";
+import EmailTemplate from "../models/EmailTemplate.js";
 import EmailLog from "../models/EmailLog.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
@@ -34,21 +35,36 @@ const masterPromptBlock = (profile) =>
     : "";
 
 // Builds the anti-hallucination guardrail block shared by every prompt.
+const buildLinksLine = (profile) => {
+  const parts = [];
+  if (profile?.linkedin?.trim()) parts.push(`LinkedIn: ${profile.linkedin.trim()}`);
+  if (profile?.github?.trim()) parts.push(`GitHub: ${profile.github.trim()}`);
+  if (profile?.portfolio?.trim()) parts.push(`Portfolio: ${profile.portfolio.trim()}`);
+  return parts.length ? parts.join(" | ") : "(none provided)";
+};
+
 const candidateFactsBlock = (profile) => `
 CANDIDATE FACTS (the ONLY truth you may use about the candidate — never invent anything beyond this):
 Name: ${profile?.name || "(not provided)"}
 Title: ${profile?.professionalTitle || "(not provided)"}
 Experience: ${profile?.experience || "(not provided)"}
+Current company: ${profile?.currentCompany || "(not provided)"}
+Current CTC: ${profile?.currentCTC || "(not provided)"}
+Expected CTC: ${profile?.expectedCTC || "(not provided)"}
+Notice period: ${profile?.noticePeriod || "(not provided)"}
+Phone: ${profile?.phone || "(not provided)"}
+Location: ${profile?.location || "(not provided)"}
 Skills: ${(profile?.skills || []).join(", ") || "(none listed)"}
 Technologies: ${(profile?.technologies || []).join(", ") || "(none listed)"}
 Previous companies: ${(profile?.previousCompanies || []).join(", ") || "(none listed)"}
 Projects: ${(profile?.projects || []).join(", ") || "(none listed)"}
 Education: ${profile?.education || "(not provided)"}
-Portfolio/GitHub/LinkedIn: ${profile?.portfolio || ""} ${profile?.github || ""} ${profile?.linkedin || ""}
+Links: ${buildLinksLine(profile)}
 Additional info: ${profile?.additionalInfo || "(none)"}
 
 STRICT RULES:
 - Never claim a skill, technology, company, project, certification, or years of experience that is not listed above.
+- When including links (LinkedIn/GitHub/Portfolio), copy them EXACTLY as a single clean URL string with NO brackets or parentheses. Each link on its own line in the signature.
 - If the job wants something the candidate doesn't have, simply don't mention it — do not apologize for the gap either.
 - Do not invent job titles, achievements, or responsibilities.
 `.trim();
@@ -269,6 +285,60 @@ ${text}`.trim();
 
     const resultText = await callLLM({ userProviders, prompt, preferProvider: provider, preferModel: model });
     res.json(parseJson(resultText));
+  } catch (err) {
+    cleanAiError(res, err);
+  }
+});
+
+// POST /api/ai/generate-detail-reply
+router.post("/generate-detail-reply", async (req, res) => {
+  try {
+    const profile = await CandidateProfile.findOne({ owner: req.userId });
+    const { requestText, recipientName, recipientEmail, templateId, applicationId } = req.body;
+
+    if (!requestText || !requestText.trim()) return res.status(400).json({ message: "requestText is required" });
+
+    const userProviders = await getUserProviders(req.userId);
+
+    let templateBlock = "";
+    if (templateId) {
+      const tmpl = await EmailTemplate.findOne({ _id: templateId, owner: req.userId });
+      if (tmpl) {
+        templateBlock = `\n\nSELECTED TEMPLATE STYLE: "${tmpl.name}" (type: ${tmpl.type}). Follow this template's tone and structure but fill in the candidate's actual details, not the placeholders:\n${tmpl.subject ? `Subject: ${tmpl.subject}\n` : ""}${tmpl.body}\n`;
+      }
+    }
+
+    let applicationBlock = "";
+    if (applicationId) {
+      const app = await Application.findOne({ _id: applicationId, owner: req.userId });
+      if (app) applicationBlock = `\nRELATED APPLICATION: ${app.jobTitle || ""} at ${app.companyName || ""}`.trim();
+    }
+
+    const prompt = `
+You write a polite, professional reply email from a job candidate to a recruiter/HR who has asked follow-up questions (e.g. share total experience, current CTC, expected CTC, notice period, other details). Only use facts from the candidate facts below. Never invent numbers.
+
+${candidateFactsBlock(profile)}
+
+${requestText ? `HR / recruiter request text:\n${requestText}\n` : ""}${applicationBlock}${templateBlock}
+
+STYLE:
+- Open clearly (e.g. "Dear <name>," or "Hello <name>,") — if a recipient name is known use it, otherwise "Dear Hiring Team,"
+- Answer each requested detail using the candidate facts above (CTC, notice period, experience, location, etc.)
+- Keep it concise, professional and confident. Use proper paragraphs. No brackets around URLs — write each link as a clean URL on its own line in the signature.
+- If a requested detail is not in the candidate facts, state that you are happy to share it separately rather than guessing.
+${masterPromptBlock(profile)}
+
+Candidate name: ${profile?.name || "the candidate"}
+Recipient name: ${recipientName || "(unknown)"}
+${recipientEmail ? `Recipient email: ${recipientEmail}` : ""}
+
+${JSON_ONLY}, in exactly this shape:
+{"subject": "...", "body": "..."}`.trim();
+
+    const text = await callLLM({ userProviders, prompt, preferProvider: req.body.provider, preferModel: req.body.model });
+    const parsed = parseJson(text);
+    if (!parsed.subject || !parsed.body) throw new Error("LLM returned an unexpected format");
+    res.json({ subject: sanitizeText(parsed.subject), body: sanitizeText(parsed.body) });
   } catch (err) {
     cleanAiError(res, err);
   }

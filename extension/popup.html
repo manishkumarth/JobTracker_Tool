@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JobTrackr for LinkedIn</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>JobTrackr</h1>
+      <span class="sub">LinkedIn extension</span>
+    </header>
+
+    <section id="login-view" class="hidden">
+      <label>
+        <span>Server API URL</span>
+        <input id="api-base" type="text" spellcheck="false" placeholder="http://localhost:5000/api" />
+      </label>
+      <label>
+        <span>Email</span>
+        <input id="email" type="email" autocomplete="username" />
+      </label>
+      <label>
+        <span>Password</span>
+        <input id="password" type="password" autocomplete="current-password" />
+      </label>
+      <button id="login-btn" class="primary">Log in</button>
+      <p id="login-error" class="error hidden"></p>
+    </section>
+
+    <section id="account-view" class="hidden">
+      <div class="user-chip">
+        <span id="user-name" class="user-name"></span>
+        <span id="user-email" class="user-email"></span>
+      </div>
+
+      <div id="gmail-status" class="status"></div>
+
+      <label class="row">
+        <span>Auto-send AI email on save</span>
+        <input id="auto-send" type="checkbox" />
+      </label>
+      <p class="hint">Sends to the recruiter email found in the post. Requires Gmail connected in JobTrackr.</p>
+
+      <div class="actions">
+        <button id="open-app" class="primary">Open JobTrackr</button>
+        <button id="logout-btn">Log out</button>
+      </div>
+
+      <p id="offline-note" class="hint hidden">Server unreachable - showing last known account info.</p>
+    </section>
+
+    <footer>
+      Scroll your LinkedIn feed and click <b>Save to JobTrackr</b> on job posts. <b>Hide</b> removes
+      noise from your feed.
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -43,48 +43,49 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     listContacts().then((d) => setContacts(Array.isArray(d) ? d : d.contacts || [])).catch(() => {});
   }, []);
 
-  const saveApplication = async () => {
-    let companyId = form.company || null;
-    if (!companyId && form.companyName) {
-      const match = companies.find((c) => c.name.toLowerCase() === form.companyName.toLowerCase());
+  const saveApplication = async (overrideForm = null) => {
+    const f = overrideForm || form;
+    let companyId = f.company || null;
+    if (!companyId && f.companyName) {
+      const match = companies.find((c) => c.name.toLowerCase() === f.companyName.toLowerCase());
       if (match) companyId = match._id;
       else {
-        const created = await createCompany({ name: form.companyName });
+        const created = await createCompany({ name: f.companyName });
         companyId = created._id;
       }
     }
 
-    let contactId = form.contact || null;
-    const hasNewContactData = form.hrName.trim() || form.hrEmail.trim() || form.hrPhone.trim();
+    let contactId = f.contact || null;
+    const hasNewContactData = f.hrName.trim() || f.hrEmail.trim() || f.hrPhone.trim();
     const shouldAutoCreateContact = !contactId && hasNewContactData;
     if (shouldAutoCreateContact) {
-      if (form.hrEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.hrEmail.trim())) {
+      if (f.hrEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.hrEmail.trim())) {
         throw new Error("Invalid contact email format");
       }
       try {
         const created = await createContact({
-          name: form.hrName.trim(),
-          email: form.hrEmail.trim(),
-          phone: form.hrPhone.trim(),
+          name: f.hrName.trim(),
+          email: f.hrEmail.trim(),
+          phone: f.hrPhone.trim(),
           companyRef: companyId || null,
-          company: form.companyName || "",
-          location: form.location || "",
+          company: f.companyName || "",
+          location: f.location || "",
           designation: "",
           contactType: "HR",
         });
         contactId = created._id;
         toast.success("Contact created and linked to Contacts page");
       } catch (err) {
-        if (err.response?.status === 409 && form.hrEmail.trim()) {
-          const existing = contacts.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
+        if (err.response?.status === 409 && f.hrEmail.trim()) {
+          const existing = contacts.find((c) => c.email?.toLowerCase() === f.hrEmail.trim().toLowerCase());
           if (existing) {
             contactId = existing._id;
             toast.success("Existing contact linked");
           } else {
             try {
-              const d = await listContacts({ search: form.hrEmail.trim() });
+              const d = await listContacts({ search: f.hrEmail.trim() });
               const arr = Array.isArray(d) ? d : d.contacts || [];
-              const match = arr.find((c) => c.email?.toLowerCase() === form.hrEmail.trim().toLowerCase());
+              const match = arr.find((c) => c.email?.toLowerCase() === f.hrEmail.trim().toLowerCase());
               if (match) contactId = match._id;
             } catch {}
             if (!contactId) {
@@ -98,10 +99,10 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     }
 
     const application = await createApplication({
-      ...form,
+      ...f,
       company: companyId,
       contact: contactId,
-      requiredSkills: form.requiredSkills.split(",").map((s) => s.trim()).filter(Boolean),
+      requiredSkills: (f.requiredSkills || "").split(",").map((s) => s.trim()).filter(Boolean),
       notes: undefined,
     });
 
@@ -122,16 +123,17 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     }
   };
 
-  const handleAutoProcess = async () => {
+  const handleAutoProcess = async (overrideForm = null) => {
+    const f = overrideForm || form;
     if (!requireGmail()) return;
     setAutoProcessing(true);
     try {
       setAutoProcessStep("Generating email...");
       const emailData = await generateEmail({
-        jobTitle: form.jobTitle,
-        companyName: form.companyName,
-        jobDescription: form.jobDescription,
-        recruiterName: form.hrName,
+        jobTitle: f.jobTitle,
+        companyName: f.companyName,
+        jobDescription: f.jobDescription,
+        recruiterName: f.hrName,
       });
 
       setAutoProcessStep("Selecting resume...");
@@ -191,7 +193,7 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         return;
       }
 
-      await finishAutoProcess(selectedResume, emailData);
+        await finishAutoProcess(selectedResume, emailData, overrideForm);
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || "Auto-process failed");
     } finally {
@@ -200,13 +202,14 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     }
   };
 
-  const finishAutoProcess = async (resume, emailData) => {
+  const finishAutoProcess = async (resume, emailData, overrideForm = null) => {
+    const f = overrideForm || form;
     setAutoProcessing(true);
     try {
       setAutoProcessStep("Saving application & contact...");
-      const { application, contactId } = await saveApplication();
+      const { application, contactId } = await saveApplication(overrideForm);
 
-      if (!form.hrEmail.trim() && !contactId) {
+      if (!f.hrEmail.trim() && !contactId) {
         toast.success("Application saved. No recruiter email found — email not sent.");
         onSaved();
         onClose();
@@ -215,8 +218,8 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
 
       setAutoProcessStep("Sending email...");
       await sendMail({
-        recipientEmail: form.hrEmail.trim(),
-        recipientName: form.hrName.trim(),
+        recipientEmail: f.hrEmail.trim(),
+        recipientName: f.hrName.trim(),
         subject: emailData.subject,
         message: emailData.body,
         resumeId: resume._id,
@@ -278,9 +281,10 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     try {
       const data = await parseLinkedIn(linkedinText);
       const filled = [];
+      let nextForm = { ...form };
       const merge = (key, value) => {
         if (value && String(value).trim()) {
-          setForm((prev) => ({ ...prev, [key]: value }));
+          nextForm[key] = value;
           filled.push(key);
         }
       };
@@ -305,10 +309,11 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         merge("requiredSkills", data.requiredSkills.join(", "));
       }
 
+      setForm(nextForm);
       toast.success(`Extracted ${filled.length} field${filled.length > 1 ? "s" : ""} from LinkedIn`);
 
       if (autoProcess && filled.length > 0) {
-        await handleAutoProcess();
+        await handleAutoProcess(nextForm);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to parse LinkedIn text");

@@ -178,6 +178,11 @@ JobTracker_Tool/
         │                      EmailTemplates, FollowUps, Interviews,
         │                      CandidateProfilePage, AiSettings, Admin, …
         └── api/               one Axios module per resource
+└── extension/
+    ├── manifest.json           Manifest V3 config
+    ├── background.js           Login, save + auto-send orchestration
+    ├── content.js / content.css  Save/Hide buttons on LinkedIn feed posts
+    └── popup.html / popup.js / popup.css  Login, Gmail status, auto-send toggle
 ```
 
 ---
@@ -295,6 +300,7 @@ happens automatically.
 | Variable | Required | Description |
 |---|---|---|
 | `VITE_API_URL` | Yes (prod) | Full URL of the API, e.g. `https://<your-app>.vercel.app/api`. Omit locally to use the `:5173` dev proxy. |
+| `VITE_CHROME_STORE_URL` | No | Chrome Web Store listing URL of the LinkedIn extension. When set, the in-app "Chrome Extension" popup shows an **Add to Chrome** button (otherwise it offers the ZIP download). |
 
 ### Adding an AI provider
 
@@ -379,6 +385,75 @@ yet**, which calls the same logic synchronously.
 
 ---
 
+## Chrome extension (LinkedIn)
+
+The `extension/` folder contains a Manifest V3 Chrome extension that turns your
+LinkedIn feed into a one-click pipeline:
+
+- **Save** — every feed post gets a *Save to JobTrackr* button. It sends the post
+  text to `POST /ai/parse-linkedin` (AI extraction), creates the application
+  (`SAVED`, source `LinkedIn`, auto company + contact) and de-duplicates by post URL
+- **Hide** — the *Hide* button removes non-relevant posts from your feed and
+  remembers them (stored in the extension, capped at 1000 URLs)
+- **Auto-send email** — toggle it in the extension popup and every saved post that
+  contains a recruiter email gets an AI-generated application email
+  (`POST /ai/generate-email` → `POST /mail/send`) using your connected Gmail
+- Logs in with your normal JobTrackr account (same email/password), so all feature
+  switches, disabled-account rules and user logs apply automatically
+
+### Install (unpacked, for development)
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode** (top-right)
+3. Click **Load unpacked** and select the `extension/` folder
+4. Pin the extension, open it, and log in with your JobTrackr account
+5. Set the **Server API URL** if you are not running on `http://localhost:5000/api`
+   (for production use `https://<your-app>.vercel.app/api`)
+
+Then open `https://www.linkedin.com/feed/` — each post now shows the Save/Hide bar.
+
+**Notes**
+- All API calls are made from the extension's service worker, so the backend CORS
+  config additionally allows `chrome-extension://` origins.
+- If AI parsing fails the post is still saved (description kept verbatim) with a
+  "review the details" note, so you never lose a job while scrolling.
+- The Gmail connection itself is set up in the web app (Settings → Gmail
+  Connection) — the extension only reports the status.
+
+### Distributing the extension
+
+The extension is plain files — it does not deploy with Vercel. Three options:
+
+1. **From the app (no store needed)** — `client/public/jobtrackr-extension.zip` is
+   served at `https://<your-app>.vercel.app/jobtrackr-extension.zip`. Users click
+   **Chrome Extension → Download extension ZIP** in the top bar, unzip, and load it
+   unpacked (Developer mode). Re-zip after changing the extension:
+
+   ```powershell
+   Compress-Archive -Path "extension\*" -DestinationPath "client\public\jobtrackr-extension.zip" -Force
+   ```
+
+2. **Chrome Web Store (public or unlisted)** — requires a one-time **$5 developer
+   registration fee** (https://chrome.google.com/webstore/devconsole); review usually
+   takes hours to a few days. What you need to submit:
+   - A ZIP of the extension folder (icons are already included: `extension/icons/`)
+   - Store listing: description, category, and at least one screenshot (1280×800 or 640×400)
+   - Privacy practices: single-purpose description, justifications for the `storage`
+     permission and the LinkedIn/Vercel host permissions, data-use disclosure (post
+     text is sent to your own JobTrackr API for AI parsing), and a privacy-policy URL
+   - After approval, upload each new version as a new release — Chrome auto-updates
+     installed copies. Set `VITE_CHROME_STORE_URL` in Vercel to the listing URL and
+     the in-app popup shows an **Add to Chrome** button
+
+3. **Share the ZIP directly** — recipients still have to enable Developer mode, so
+   the Web Store is better for non-technical users.
+
+> The extension talks to whichever API URL each user enters in its popup (default
+> `http://localhost:5000/api`), so the same build works against your Vercel
+> deployment once users set `https://<your-app>.vercel.app/api`.
+
+---
+
 ## Admin access
 
 A single hardcoded account, `manish12099@gmail.com`, automatically receives
@@ -440,6 +515,7 @@ header unless noted.
 | POST | `/ai/refine` | Refine an existing email |
 | POST | `/ai/analyze-job` | Analyze a JD against the profile |
 | POST | `/ai/parse-linkedin` | Extract structured data from pasted LinkedIn text |
+| GET | `/ext/check?url=` | Chrome extension: check if a LinkedIn post URL is already saved |
 | GET | `/profile` | Candidate profile |
 | PUT | `/profile` | Update profile (including `masterPrompt`) |
 | POST | `/profile/parse-resume` | Upload + parse a PDF resume |

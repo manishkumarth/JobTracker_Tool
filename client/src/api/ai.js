@@ -5,3 +5,4 @@ export const generateFollowUpEmail = (applicationId) => api.post("/ai/generate-f
 export const refineEmail = (payload) => api.post("/ai/refine", payload).then((r) => r.data);
 export const analyzeJob = (jobDescription) => api.post("/ai/analyze-job", { jobDescription }).then((r) => r.data);
 export const parseLinkedIn = (text) => api.post("/ai/parse-linkedin", { text }).then((r) => r.data);
+export const generateDetailReply = (payload) => api.post("/ai/generate-detail-reply", payload).then((r) => r.data);

@@ -121,9 +121,15 @@ export default function CandidateProfilePage() {
           projects: arrToStr(p.projects),
           education: p.education || "",
           portfolio: p.portfolio || "",
-          github: p.github || "",
-          linkedin: p.linkedin || "",
-          resumeText: p.resumeText || "",
+github: p.github || "",
+linkedin: p.linkedin || "",
+currentCompany: p.currentCompany || "",
+currentCTC: p.currentCTC || "",
+expectedCTC: p.expectedCTC || "",
+noticePeriod: p.noticePeriod || "",
+phone: p.phone || "",
+location: p.location || "",
+resumeText: p.resumeText || "",
           additionalInfo: p.additionalInfo || "",
           masterPrompt: p.masterPrompt || "",
         })
@@ -174,9 +180,15 @@ export default function CandidateProfilePage() {
           projects: arrToStr(result.profile.projects),
           education: result.profile.education || "",
           portfolio: result.profile.portfolio || "",
-          github: result.profile.github || "",
-          linkedin: result.profile.linkedin || "",
-          resumeText: result.profile.resumeText || "",
+github: result.profile.github || "",
+linkedin: result.profile.linkedin || "",
+currentCompany: result.profile.currentCompany || "",
+currentCTC: result.profile.currentCTC || "",
+expectedCTC: result.profile.expectedCTC || "",
+noticePeriod: result.profile.noticePeriod || "",
+phone: result.profile.phone || "",
+location: result.profile.location || "",
+resumeText: result.profile.resumeText || "",
           additionalInfo: result.profile.additionalInfo || "",
         });
       }
@@ -331,6 +343,38 @@ export default function CandidateProfilePage() {
               <div>
                 <label className="block text-xs font-medium text-muted mb-1">Education</label>
                 <input placeholder="B.S. Computer Science, MIT" className="input" value={form.education} onChange={set("education")} />
+              </div>
+            </div>
+
+            <div className="card p-6 space-y-4">
+              <h2 className="section-title">Compensation & Availability</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1">Current company</label>
+                  <input placeholder="e.g. Acme Inc" className="input" value={form.currentCompany} onChange={set("currentCompany")} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1">Current CTC</label>
+                  <input placeholder="e.g. 12 LPA" className="input" value={form.currentCTC} onChange={set("currentCTC")} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1">Expected CTC</label>
+                  <input placeholder="e.g. 18 LPA" className="input" value={form.expectedCTC} onChange={set("expectedCTC")} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1">Notice period</label>
+                  <input placeholder="e.g. 90 days" className="input" value={form.noticePeriod} onChange={set("noticePeriod")} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1">Phone</label>
+                  <input placeholder="+91 ..." className="input" value={form.phone} onChange={set("phone")} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1">Location</label>
+                  <input placeholder="City, Country" className="input" value={form.location} onChange={set("location")} />
+                </div>
               </div>
             </div>
 
