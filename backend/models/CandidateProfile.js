@@ -17,8 +17,9 @@ const resumeSchema = new mongoose.Schema(
 const candidateProfileSchema = new mongoose.Schema(
   {
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true, index: true },
-    name: { type: String, default: "" },
-    professionalTitle: { type: String, default: "" },
+name: { type: String, default: "" },
+email: { type: String, default: "" },
+professionalTitle: { type: String, default: "" },
     experience: { type: String, default: "" },
     currentCompany: { type: String, default: "" },
     currentCTC: { type: String, default: "" },

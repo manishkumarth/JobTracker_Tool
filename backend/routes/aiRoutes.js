@@ -43,6 +43,14 @@ const buildLinksLine = (profile) => {
   return parts.length ? parts.join(" | ") : "(none provided)";
 };
 
+const buildContactLine = (profile) => {
+  const parts = [];
+  if (profile?.email?.trim()) parts.push(`Email: ${profile.email.trim()}`);
+  if (profile?.phone?.trim()) parts.push(`Phone: ${profile.phone.trim()}`);
+  if (profile?.location?.trim()) parts.push(`Location: ${profile.location.trim()}`);
+  return parts.length ? parts.join(" , ") : "(not provided)";
+};
+
 const candidateFactsBlock = (profile) => `
 CANDIDATE FACTS (the ONLY truth you may use about the candidate — never invent anything beyond this):
 Name: ${profile?.name || "(not provided)"}
@@ -52,8 +60,7 @@ Current company: ${profile?.currentCompany || "(not provided)"}
 Current CTC: ${profile?.currentCTC || "(not provided)"}
 Expected CTC: ${profile?.expectedCTC || "(not provided)"}
 Notice period: ${profile?.noticePeriod || "(not provided)"}
-Phone: ${profile?.phone || "(not provided)"}
-Location: ${profile?.location || "(not provided)"}
+Contact details: ${buildContactLine(profile)}
 Skills: ${(profile?.skills || []).join(", ") || "(none listed)"}
 Technologies: ${(profile?.technologies || []).join(", ") || "(none listed)"}
 Previous companies: ${(profile?.previousCompanies || []).join(", ") || "(none listed)"}
@@ -64,7 +71,8 @@ Additional info: ${profile?.additionalInfo || "(none)"}
 
 STRICT RULES:
 - Never claim a skill, technology, company, project, certification, or years of experience that is not listed above.
-- When including links (LinkedIn/GitHub/Portfolio), copy them EXACTLY as a single clean URL string with NO brackets or parentheses. Each link on its own line in the signature.
+- When including links (LinkedIn/GitHub/Portfolio), copy them EXACTLY as a clean URL string with NO brackets or parentheses. Each link on its own line in the signature.
+- When including contact details (phone/email), write them plainly as "Phone: <number>" and "Email: <address>" — never garble digits or brackets.
 - If the job wants something the candidate doesn't have, simply don't mention it — do not apologize for the gap either.
 - Do not invent job titles, achievements, or responsibilities.
 `.trim();

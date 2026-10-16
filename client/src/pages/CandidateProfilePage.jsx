@@ -112,8 +112,9 @@ export default function CandidateProfilePage() {
     getProfile()
       .then((p) =>
         setForm({
-          name: p.name || "",
-          professionalTitle: p.professionalTitle || "",
+name: p.name || "",
+email: p.email || "",
+professionalTitle: p.professionalTitle || "",
           experience: p.experience || "",
           skills: arrToStr(p.skills),
           technologies: arrToStr(p.technologies),
@@ -171,8 +172,9 @@ resumeText: p.resumeText || "",
       setParseResult(result.parsed);
       if (result.profile) {
         setForm({
-          name: result.profile.name || "",
-          professionalTitle: result.profile.professionalTitle || "",
+name: result.profile.name || "",
+email: result.profile.email || "",
+professionalTitle: result.profile.professionalTitle || "",
           experience: result.profile.experience || "",
           skills: arrToStr(result.profile.skills),
           technologies: arrToStr(result.profile.technologies),
@@ -182,6 +184,7 @@ resumeText: p.resumeText || "",
           portfolio: result.profile.portfolio || "",
 github: result.profile.github || "",
 linkedin: result.profile.linkedin || "",
+email: result.profile.email || "",
 currentCompany: result.profile.currentCompany || "",
 currentCTC: result.profile.currentCTC || "",
 expectedCTC: result.profile.expectedCTC || "",
@@ -190,6 +193,7 @@ phone: result.profile.phone || "",
 location: result.profile.location || "",
 resumeText: result.profile.resumeText || "",
           additionalInfo: result.profile.additionalInfo || "",
+masterPrompt: result.profile.masterPrompt || form.masterPrompt || "",
         });
       }
       toast.success("Resume parsed and profile updated!");
@@ -311,13 +315,16 @@ resumeText: result.profile.resumeText || "",
                   <label className="block text-xs font-medium text-muted mb-1">Professional title</label>
                   <input placeholder="Frontend Developer" className="input" value={form.professionalTitle} onChange={set("professionalTitle")} />
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1">Email</label>
+                  <input placeholder="you@example.com" className="input" value={form.email} onChange={set("email")} />
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted mb-1">Experience</label>
                 <input placeholder="e.g. 2 years" className="input" value={form.experience} onChange={set("experience")} />
               </div>
             </div>
-
             <div className="card p-6 space-y-4">
               <h2 className="section-title">Skills & Technologies</h2>
               <div>
@@ -415,6 +422,23 @@ resumeText: result.profile.resumeText || "",
                   value={form.masterPrompt || ""}
                   onChange={set("masterPrompt")}
                 />
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {[
+                    { label: "Short & signature", text: "Keep emails under 120 words. Sign off as 'Thanks, Manish'. Never mention salary expectations." },
+                    { label: "Concise highlight", text: "Be polite and concise. Highlight 2-3 relevant skills only. Avoid fluff." },
+                    { label: "CTA finish", text: "Professional tone. End with contact details and a clear CTA for interview." },
+                  ].map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, masterPrompt: p.text }))}
+                      className="btn btn-sm btn-secondary text-xs"
+                      title={p.text}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
                 <p className="text-[11px] text-muted mt-1">
                   Saved with your profile and applied to email generation and follow-ups. You can also edit it in Settings.
                 </p>

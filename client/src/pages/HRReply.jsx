@@ -22,6 +22,7 @@ export default function HRReply() {
   const [resumes, setResumes] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
+  const [autoDraft, setAutoDraft] = useState(false);
 
   useEffect(() => {
     listTemplates().then((d) => setTemplates(Array.isArray(d) ? d : [])).catch(() => {});
@@ -32,6 +33,21 @@ export default function HRReply() {
       if (def) setResumeId(def._id);
     }).catch(() => {});
   }, []);
+
+  // Auto-extract a recruiter email from the pasted request
+  useEffect(() => {
+    const m = requestText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (m) setRecipientEmail((prev) => (prev ? prev : m[0]));
+  }, [requestText]);
+
+  // Auto-draft when the toggle is on
+  useEffect(() => {
+    if (!autoDraft || requestText.trim().length < 20) return;
+    const t = setTimeout(() => {
+      handleGenerate();
+    }, 900);
+    return () => clearTimeout(t);
+  }, [requestText, autoDraft]);
 
   const handleGenerate = async () => {
     if (!requestText.trim()) {
@@ -104,6 +120,15 @@ export default function HRReply() {
                 value={requestText}
                 onChange={(e) => setRequestText(e.target.value)}
               />
+              <label className="flex items-center gap-2 mt-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={autoDraft}
+                  onChange={(e) => setAutoDraft(e.target.checked)}
+                  className="rounded"
+                />
+                Auto-draft reply as I type
+              </label>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>

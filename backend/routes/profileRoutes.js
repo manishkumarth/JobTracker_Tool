@@ -97,7 +97,17 @@ const mergeParsedIntoProfile = (profile, parsed) => {
 // GET /api/profile
 router.get("/", async (req, res) => {
   let profile = await CandidateProfile.findOne({ owner: req.userId });
-  if (!profile) profile = await CandidateProfile.create({ owner: req.userId });
+  if (!profile) {
+    const user = await User.findById(req.userId).select("name email");
+    profile = await CandidateProfile.create({ owner: req.userId, name: user?.name || "", email: user?.email || "" });
+  } else if (!profile.email || !profile.phone) {
+    const user = await User.findById(req.userId).select("name email");
+    if ((!profile.email && user?.email) || (!profile.name && user?.name)) {
+      if (!profile.email && user?.email) profile.email = user.email;
+      if (!profile.name && user?.name) profile.name = user.name;
+      await profile.save();
+    }
+  }
   res.json(profile);
 });
 
