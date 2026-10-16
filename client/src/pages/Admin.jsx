@@ -181,6 +181,7 @@ function UserLogsSection() {
                   <p className="text-[11px] text-muted truncate mt-0.5">
                     {l.name || "Unnamed"} &middot; {l.email}
                     {l.ip ? ` \u00b7 ${l.ip}` : ""}
+                    {l.location ? ` \u00b7 ${[l.location.city, l.location.region, l.location.country].filter(Boolean).join(", ")}` : ""}
                   </p>
                 </div>
                 <span className="text-[11px] text-muted whitespace-nowrap shrink-0">

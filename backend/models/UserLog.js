@@ -10,6 +10,14 @@ const userLogSchema = new mongoose.Schema(
     action: { type: String, default: "" },
     meta: { type: Object, default: {} },
     ip: { type: String, default: "" },
+    location: {
+      city: { type: String, default: "" },
+      region: { type: String, default: "" },
+      country: { type: String, default: "" },
+      lat: { type: Number, default: null },
+      lon: { type: Number, default: null },
+      timezone: { type: String, default: "" },
+    },
     userAgent: { type: String, default: "" },
   },
   { timestamps: true }
