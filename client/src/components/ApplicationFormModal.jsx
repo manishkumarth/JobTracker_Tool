@@ -144,7 +144,7 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         return;
       }
 
-      const jobText = `${form.jobTitle} ${form.jobDescription} ${form.requiredSkills}`.toLowerCase();
+      const jobText = `${f.jobTitle} ${f.jobDescription} ${f.requiredSkills}`.toLowerCase();
       const ROLE_KEYWORDS = [
         ["java", "spring", "spring boot", "j2ee", "hibernate"],
         ["react", "reactjs", "react.js"],
@@ -157,7 +157,7 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
       ];
 
       let selectedResume = null;
-      const titleText = form.jobTitle.toLowerCase();
+      const titleText = f.jobTitle.toLowerCase();
       const matchedGroups = ROLE_KEYWORDS.filter((keywords) =>
         keywords.some((kw) => titleText.includes(kw))
       );

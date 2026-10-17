@@ -154,7 +154,10 @@ async function saveJob({ text, url }) {
   }
   const token = s.token;
 
-  if (url) {
+  // Only dedup when we have a real per-post URL (contains a URN). The floating
+  // button fallback passes the feed URL, which would falsely match every save.
+  const isPerPostUrl = /\/feed\/update\/urn:li:activity/.test(url);
+  if (url && isPerPostUrl) {
     const check = await api(`/ext/check?url=${encodeURIComponent(url)}`, { token });
     if (check.exists) return { ok: true, already: true, application: check.application };
   }
