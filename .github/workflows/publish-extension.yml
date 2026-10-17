@@ -1,0 +1,48 @@
+name: Publish Chrome Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "extension/**"
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install chrome-webstore-upload-cli
+        run: npm install -g chrome-webstore-upload-cli
+
+      - name: Read version from manifest
+        id: version
+        run: |
+          VERSION=$(node -p "require('./extension/manifest.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build zip
+        run: |
+          cd extension
+          zip -r ../jobtrackr-extension.zip . -x "*.DS_Store" -x "icons/generate-icons.mjs"
+          cd ..
+
+      - name: Upload to Chrome Web Store
+        run: |
+          chrome-webstore-upload upload \
+            --source jobtrackr-extension.zip \
+            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}" \
+            --client-id "${{ secrets.CHROME_CLIENT_ID }}" \
+            --client-secret "${{ secrets.CHROME_CLIENT_SECRET }}" \
+            --refresh-token "${{ secrets.CHROME_REFRESH_TOKEN }}"
+
+      - name: Summary
+        run: echo "Published extension v${{ steps.version.outputs.version }}"
+```
