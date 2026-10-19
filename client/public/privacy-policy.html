@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — JobTrackr for LinkedIn</title>
+  <meta name="description" content="Privacy policy for the JobTrackr for LinkedIn Chrome extension. What data is collected, how it is used, stored, and shared." />
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #8b5cf6;
+      --border: #334155;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --text: #1e293b;
+        --muted: #64748b;
+        --border: #e2e8f0;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .wrap { max-width: 800px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+    header { border-bottom: 2px solid var(--accent); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+    h1 { margin: 0 0 0.35rem; font-size: 1.9rem; line-height: 1.25; }
+    .meta { color: var(--muted); font-size: 0.95rem; }
+    h2 { margin: 2.4rem 0 0.6rem; font-size: 1.3rem; color: var(--accent); }
+    h3 { margin: 1.6rem 0 0.4rem; font-size: 1.05rem; }
+    p, li { margin: 0.5rem 0; }
+    a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      margin: 1.5rem 0;
+    }
+    .card h2:first-child { margin-top: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.94rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 600; }
+    .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    code {
+      background: rgba(139, 92, 246, 0.12);
+      padding: 0.12em 0.4em;
+      border-radius: 5px;
+      font-size: 0.88em;
+    }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Privacy Policy — JobTrackr for LinkedIn</h1>
+      <div class="meta">Last updated: 2026-10-19 &middot; Applies to the JobTrackr for LinkedIn Chrome extension</div>
+    </header>
+
+    <div class="card">
+      <h2>1. Summary</h2>
+      <p>This policy applies to the <strong>JobTrackr for LinkedIn</strong> Chrome extension (the &ldquo;Extension&rdquo;). It describes what data the Extension collects, how it is used, stored, and shared, and the choices available to you.</p>
+      <p>The Extension is operated by an individual developer. Contact:</p>
+      <ul>
+        <li><strong>Name:</strong> Manish Kumar</li>
+        <li><strong>Email:</strong> <a href="mailto:manish12099@gmail.com">manish12099@gmail.com</a></li>
+      </ul>
+      <p>The Extension helps you save job posts you choose from your LinkedIn feed into your JobTrackr account, hide posts you are not interested in, and &mdash; only if you enable the option &mdash; draft and send an AI-generated application email from your connected Gmail account.</p>
+      <p><strong>Nothing is collected automatically in the background.</strong> The Extension only reads the text of a LinkedIn post when you explicitly click &ldquo;Save to JobTrackr&rdquo; (or the floating &ldquo;Save visible post&rdquo; button) on that post. It does not track your browsing, read your LinkedIn messages, scrape your connections, or monitor your activity on other websites.</p>
+    </div>
+
+    <div class="card">
+      <h2>2. Data the Extension Collects and Processes</h2>
+      <p>All data below is processed only in connection with actions you initiate (saving a post, logging in, toggling a setting).</p>
+
+      <h3>2.1 Data read from LinkedIn (only when you click &ldquo;Save&rdquo;)</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>Data</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>The visible text of the post you clicked (capped at 8,000 characters)</td><td>Sent to the JobTrackr API so AI can extract structured job details (title, company, location, salary, skills, recruiter contact)</td></tr>
+          <tr><td>The post&rsquo;s URL (LinkedIn activity link)</td><td>Used to prevent saving the same post twice and stored with your saved application</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>The Extension does <strong>not</strong> read posts you have not interacted with, and does not collect data from any website other than <code>https://www.linkedin.com/*</code>.</p>
+
+      <h3>2.2 Account data (entered by you)</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>Data</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>Email address and password</td><td>Used only to log in to your JobTrackr account via the Extension popup. Your password is sent to the JobTrackr API and is <strong>not stored</strong> by the Extension.</td></tr>
+          <tr><td>JobTrackr authentication token (JWT)</td><td>Stored locally so you stay logged in. Cleared when you log out or when the token expires.</td></tr>
+          <tr><td>Account details returned after login (name, email, Gmail-connected status, feature flags)</td><td>Displayed in the Extension popup so you can see your account state.</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3>2.3 Settings and preferences (stored locally)</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>Storage key</th><th>Data</th><th>Leaves your browser?</th></tr></thead>
+        <tbody>
+          <tr><td><code>jt_token</code></td><td>Authentication token</td><td>Yes &mdash; sent to the JobTrackr API with each request you trigger</td></tr>
+          <tr><td><code>jt_user</code></td><td>Minimal account info (name, email, Gmail status, feature flags)</td><td>Yes &mdash; refreshed from the API when you open the popup</td></tr>
+          <tr><td><code>jt_api_base</code></td><td>The JobTrackr API URL (you can change this in the popup)</td><td>No &mdash; used as the destination for API calls</td></tr>
+          <tr><td><code>jt_auto_send</code></td><td>Whether auto-send of AI emails is enabled (on/off)</td><td>No &mdash; read locally; the setting itself is not transmitted</td></tr>
+          <tr><td><code>jt_rejected</code></td><td>URLs of LinkedIn posts you hid with the &ldquo;Hide&rdquo; button (up to 1,000)</td><td>No &mdash; used only locally to keep those posts hidden while you browse</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3>2.4 Data sent to the JobTrackr API when you save a post</h3>
+      <p>After AI parsing, the Extension sends your saved job to the JobTrackr API, which stores it in your account. This includes: job title, company name, job description (the post text), location, salary, experience, required skills, recruiter name/email/phone (if present in the post), post URL, and source (&ldquo;LinkedIn&rdquo;).</p>
+
+      <h3>2.5 Data used when auto-send is enabled</h3>
+      <p>If you turn on <strong>&ldquo;Auto-send AI email on save&rdquo;</strong> in the popup, the Extension additionally, for each post you save that contains a recruiter email address:</p>
+      <ol>
+        <li>Fetches your resume list and profile from the JobTrackr API to pick the best-matching resume (matched locally against your resume notes and filenames using role keywords).</li>
+        <li>Asks the JobTrackr API to generate a draft email (the AI receives your candidate profile details and the job details &mdash; see Section 4).</li>
+        <li>Sends the email via the JobTrackr API to the recruiter email found in the post, using the Gmail account you connected in JobTrackr, with your selected resume attached.</li>
+      </ol>
+      <p>No email is sent unless you have enabled the auto-save toggle <strong>and</strong> the post contains a valid recruiter email address. You can turn the toggle off at any time in the popup.</p>
+    </div>
+
+    <div class="card">
+      <h2>3. Third-Party Services</h2>
+      <p>The Extension communicates <strong>only</strong> with the JobTrackr API server. By default the Extension is configured to use a local development server (<code>http://localhost:5000/api</code>); you can set it to the hosted JobTrackr deployment (<code>https://j-tracker-tool.vercel.app/api</code>) or any compatible server you trust, in the Extension popup&rsquo;s &ldquo;Server API URL&rdquo; field.</p>
+      <p>The JobTrackr API uses the following services to provide the features described above. The Extension does not contact these services directly; they are listed for full disclosure of what happens to your data after it reaches the API:</p>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>Service</th><th>Data received</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>MongoDB (database)</td><td>Your account, saved applications, resume metadata, email logs</td><td>Persistent storage of your JobTrackr data</td></tr>
+          <tr><td>Cloudinary</td><td>Resume PDF files you upload (via the JobTrackr web app)</td><td>Resume file storage; resume IDs are referenced when sending application emails</td></tr>
+          <tr><td>AI/LLM provider of your choice (e.g., OpenRouter, OpenAI, Google Gemini, Anthropic, Groq, DeepSeek, Together AI &mdash; configured by you in JobTrackr AI Settings)</td><td>(a) The LinkedIn post text you saved, for parsing; (b) your candidate profile details (name, title, experience, current/expected CTC, notice period, skills, education, links, contact details) and the job details, for email generation</td><td>AI parsing of job posts and AI drafting of application emails</td></tr>
+          <tr><td>Gmail SMTP (via your own Gmail account and app password, connected by you in JobTrackr)</td><td>The generated email (recipient, subject, body) and your resume</td><td>Sending the application email from your Gmail account</td></tr>
+          <tr><td>Vercel (hosting)</td><td>API traffic as described above</td><td>Hosting the JobTrackr API and website</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p><strong>The Extension itself does not include any analytics, tracking, or advertising SDKs.</strong> No data is collected or shared for advertising purposes. No data is sold.</p>
+    </div>
+
+    <div class="card">
+      <h2>4. AI Processing</h2>
+      <p>When you save a post, the <strong>post text</strong> is sent to the AI provider you configured in JobTrackr (via the JobTrackr API) so it can extract structured job details.</p>
+      <p>When auto-send generates an email, your <strong>candidate profile facts</strong> (name, professional title, experience, current company, current/expected CTC, notice period, contact details, skills, technologies, previous companies, projects, education, portfolio/GitHub/LinkedIn links, additional info, and any master prompt you saved in your profile) plus the <strong>job details</strong> are sent to the same AI provider so it can draft a truthful email.</p>
+      <p>Your AI provider API keys are stored encrypted on the JobTrackr server and are never accessible to the Extension.</p>
+    </div>
+
+    <div class="card">
+      <h2>5. Storage, Retention, and Security</h2>
+      <ul>
+        <li><strong>On your device:</strong> authentication token, account snapshot, API URL, auto-send preference, and hidden-post URLs are stored in <code>chrome.storage.local</code>, which is scoped to your browser profile and inaccessible to websites or other extensions. Clearing the Extension&rsquo;s data (or uninstalling the Extension) removes all of it.</li>
+        <li><strong>On the JobTrackr server:</strong> your account, saved applications, and email logs are retained until you delete them or delete your account. You can delete individual applications from the JobTrackr web app or mobile app.</li>
+        <li><strong>Security:</strong> the hosted JobTrackr API is served over HTTPS. Your password is used only for authentication and is stored server-side only as a bcrypt hash. Gmail app passwords and AI provider keys are stored encrypted at rest. Authentication tokens expire after 7 days.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>6. Your Choices and Control</h2>
+      <ul>
+        <li><strong>Login is required to save posts.</strong> The Extension does nothing until you log in with your JobTrackr account in the popup.</li>
+        <li><strong>Saves are always manual.</strong> Every save requires your click on a specific post.</li>
+        <li><strong>Auto-send is opt-in and reversible.</strong> It is off by default; toggle it off in the popup at any time.</li>
+        <li><strong>Hide list is local.</strong> Hidden-post URLs stay on your device; you can clear them by clearing the Extension&rsquo;s storage.</li>
+        <li><strong>Custom server.</strong> You may point the Extension at any compatible JobTrackr API by changing the &ldquo;Server API URL&rdquo; in the popup. If you use a third-party server, that server&rsquo;s privacy practices apply to the data you send it.</li>
+        <li><strong>Uninstalling</strong> the Extension removes all locally stored data. Data already saved to your JobTrackr account remains until you delete it in the JobTrackr app.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>7. Data Deletion Requests</h2>
+      <p>To delete your JobTrackr account and all associated data (saved applications, contacts, emails, resumes, logs), email <a href="mailto:manish12099@gmail.com?subject=Data%20deletion%20request">manish12099@gmail.com</a> from the address registered to your account, with the subject &ldquo;Data deletion request&rdquo;. Deletion will be completed within a reasonable time after verification.</p>
+    </div>
+
+    <div class="card">
+      <h2>8. Children&rsquo;s Privacy</h2>
+      <p>The Extension is not directed at children under 13, and the Service does not knowingly collect personal information from children.</p>
+    </div>
+
+    <div class="card">
+      <h2>9. Changes to This Policy</h2>
+      <p>The policy may be updated to reflect changes in the Extension or applicable requirements. The &ldquo;Last updated&rdquo; date at the top will be revised when changes are made. Continued use of the Extension after changes constitutes acceptance of the updated policy. Material changes will be noted in the Extension&rsquo;s store listing release notes where required.</p>
+    </div>
+
+    <div class="card">
+      <h2>10. Chrome Web Store Permissions (Just-in-Time Disclosure)</h2>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>Permission</th><th>Why it is needed</th></tr></thead>
+        <tbody>
+          <tr><td><strong>storage</strong></td><td>To keep you logged in (auth token), remember your settings (API URL, auto-send toggle), and remember which posts you hid.</td></tr>
+          <tr><td><strong>Access to <code>https://www.linkedin.com/*</code></strong> (host permission + content script)</td><td>To add the &ldquo;Save to JobTrackr&rdquo; / &ldquo;Hide&rdquo; buttons on feed posts and to read the text of a post only when you click Save.</td></tr>
+          <tr><td><strong>Access to the JobTrackr API hosts</strong> (<code>https://j-tracker-tool.vercel.app/*</code>, <code>http://localhost:5000/*</code>, <code>https://*.vercel.app/*</code>)</td><td>To log you in and send the post text for AI parsing, save applications to your account, and (if you enable it) generate and send the application email. The localhost and wildcard Vercel permissions exist so you can point the Extension at a development server or any deployment of the JobTrackr API.</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>The Extension does not request permissions for browsing history, tabs, downloads, cookies, web request interception, or native messaging.</p>
+    </div>
+
+    <div class="card">
+      <h2>11. Single-Purpose Statement (Chrome Web Store)</h2>
+      <p>The single purpose of this Extension is: <strong>to allow the user to save selected LinkedIn feed job posts into their JobTrackr account and optionally send an AI-drafted application email for those saved posts.</strong> All permissions are used only in service of this purpose.</p>
+    </div>
+
+    <div class="card">
+      <h2>12. Contact</h2>
+      <p>Questions about this privacy policy or your data:</p>
+      <ul>
+        <li><strong>Email:</strong> <a href="mailto:manish12099@gmail.com">manish12099@gmail.com</a></li>
+        <li><strong>Developer:</strong> Manish Kumar</li>
+      </ul>
+    </div>
+
+    <footer>
+      This page is a static, standalone copy of the JobTrackr for LinkedIn extension privacy policy. It requires no account, login, or JavaScript.
+    </footer>
+  </div>
+</body>
+</html>

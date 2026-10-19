@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="linkedin_capture_description">Reads visible LinkedIn feed posts to extract job details when you tap the Save to JobTrackr overlay button.</string>
+</resources>

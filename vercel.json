@@ -29,6 +29,14 @@
       "dest": "/client/assets/$1"
     },
     {
+      "src": "/privacy-policy",
+      "dest": "/client/privacy-policy.html"
+    },
+    {
+      "src": "/privacy-policy.html",
+      "dest": "/client/privacy-policy.html"
+    },
+    {
       "handle": "filesystem"
     },
     {
