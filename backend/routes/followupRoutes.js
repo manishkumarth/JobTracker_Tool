@@ -48,6 +48,7 @@ router.get("/", async (req, res) => {
       owner: req.userId,
       application: { $in: appIds },
       emailType: "Follow-up",
+      status: "Sent",
     }).select("application");
     const sentSet = new Set(sentLogs.map((l) => String(l.application)));
 

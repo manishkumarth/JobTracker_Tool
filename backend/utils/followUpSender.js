@@ -1,5 +1,6 @@
 import CandidateProfile from "../models/CandidateProfile.js";
 import EmailLog from "../models/EmailLog.js";
+import FollowUp from "../models/FollowUp.js";
 import { callLLM, parseJson } from "./llmClient.js";
 import { getTransporter } from "./mailer.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "./tracking.js";
@@ -40,10 +41,13 @@ export const sendFollowUpEmail = async ({ user, application, contact, profile })
   const recipientEmail = contact?.email || application.hrEmail;
   if (!recipientEmail) return { sent: false, reason: "No recipient email" };
 
+  // Only a successfully SENT follow-up blocks a retry. Draft/Pending/Failed
+  // logs must not, or a failed send could never be retried.
   const existing = await EmailLog.findOne({
     owner: user._id,
     application: application._id,
     emailType: "Follow-up",
+    status: "Sent",
   });
   if (existing) return { sent: false, reason: "already_sent" };
 
@@ -100,17 +104,57 @@ ${JSON_ONLY}:
     trackingEnabled: true,
   });
 
-  await transporter.sendMail({
-    from: `"${user.name}" <${user.gmailAddress}>`,
-    to: recipientEmail,
-    subject,
-    text: textContent,
-    html: htmlContent,
-  });
+  try {
+    await transporter.sendMail({
+      from: `"${user.name}" <${user.gmailAddress}>`,
+      to: recipientEmail,
+      subject,
+      text: textContent,
+      html: htmlContent,
+    });
+  } catch (err) {
+    // Mark the log Failed so it doesn't stay stuck at "Pending" in Email
+    // History, and allow a retry (the already_sent guard only counts Sent).
+    logEntry.status = "Failed";
+    logEntry.errorMessage = err.message;
+    await logEntry.save();
+    return { sent: false, reason: "send_failed" };
+  }
 
   logEntry.status = "Sent";
   logEntry.sentAt = new Date();
   await logEntry.save();
+
+  // Keep the Follow-ups page in sync with Email History: complete any
+  // scheduled follow-up for this application, or record this auto-send as a
+  // completed follow-up so it appears in the Follow-ups list too.
+  const pendingFollowUp = await FollowUp.findOne({
+    owner: user._id,
+    application: application._id,
+    status: "Pending",
+  }).sort({ date: -1 });
+  if (pendingFollowUp) {
+    pendingFollowUp.status = "Completed";
+    await pendingFollowUp.save();
+    application.followUpDate = null;
+  } else {
+    const alreadyLogged = await FollowUp.findOne({
+      owner: user._id,
+      application: application._id,
+      status: "Completed",
+      type: "Email Follow-up",
+    });
+    if (!alreadyLogged) {
+      await FollowUp.create({
+        owner: user._id,
+        application: application._id,
+        type: "Email Follow-up",
+        date: new Date(),
+        note: "Follow-up email sent",
+        status: "Completed",
+      });
+    }
+  }
 
   application.status = "FOLLOW_UP_SENT";
   await application.save();
