@@ -1,6 +1,5 @@
 package expo.modules.linkedinoverlay
 
-import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -12,6 +11,14 @@ class LinkedInOverlayModule : Module() {
     Name("LinkedInOverlay")
 
     Events("postScraped", "captureStatus")
+
+    OnCreate {
+      moduleInstance = this@LinkedInOverlayModule
+    }
+
+    OnDestroy {
+      moduleInstance = null
+    }
 
     AsyncFunction("startCapture") {
       val context = appContext.reactContext ?: return@AsyncFunction false
@@ -61,15 +68,5 @@ class LinkedInOverlayModule : Module() {
   companion object {
     @Volatile
     var moduleInstance: LinkedInOverlayModule? = null
-  }
-
-  override fun onCreate(context: Context) {
-    super.onCreate(context)
-    moduleInstance = this
-  }
-
-  override fun onDestroy() {
-    super.onDestroy()
-    moduleInstance = null
   }
 }
