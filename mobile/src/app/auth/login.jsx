@@ -3,9 +3,11 @@ import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from "reac
 import { useAuth } from "../../context/AuthContext";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function Login() {
   const { login } = useAuth();
+  const { colors } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,22 +27,65 @@ export default function Login() {
     }
   };
 
+  const input = {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    color: colors.text,
+    backgroundColor: colors.card,
+  };
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff", justifyContent: "center", padding: 20, gap: 16 }}>
-      <Text style={{ fontSize: 28, fontWeight: "700", textAlign: "center" }}>JobTrackr</Text>
-      <TextInput placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={input} />
-      <TextInput placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry style={input} />
-      {err ? <Text style={{ color: "#dc2626" }}>{err}</Text> : null}
-      <TouchableOpacity onPress={onLogin} disabled={loading} style={btn}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={btnText}>Login</Text>}
+    <SafeAreaView
+      style={{
+        flex: 1,
+        backgroundColor: colors.bg,
+        justifyContent: "center",
+        padding: 20,
+        gap: 16,
+      }}
+    >
+      <Text style={{ fontSize: 28, fontWeight: "700", textAlign: "center", color: colors.text }}>
+        JobTrackr
+      </Text>
+      <Text style={{ textAlign: "center", color: colors.textMuted, marginBottom: 8 }}>
+        Job Application CRM + AI Email Assistant
+      </Text>
+      <TextInput
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        style={input}
+        placeholderTextColor={colors.textMuted}
+      />
+      <TextInput
+        placeholder="Password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        style={input}
+        placeholderTextColor={colors.textMuted}
+      />
+      {err ? <Text style={{ color: colors.danger }}>{err}</Text> : null}
+      <TouchableOpacity
+        onPress={onLogin}
+        disabled={loading}
+        style={{ backgroundColor: colors.primary, padding: 14, borderRadius: 8, alignItems: "center" }}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={{ color: "#fff", fontWeight: "600" }}>Login</Text>
+        )}
       </TouchableOpacity>
       <TouchableOpacity onPress={() => router.push("/auth/signup")}>
-        <Text style={{ textAlign: "center", color: "#2563eb" }}>Don't have an account? Sign Up</Text>
+        <Text style={{ textAlign: "center", color: colors.primary }}>
+          Don't have an account? Sign Up
+        </Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
-
-const input = { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12 };
-const btn = { backgroundColor: "#2563eb", padding: 14, borderRadius: 8, alignItems: "center" };
-const btnText = { color: "#fff", fontWeight: "600" };

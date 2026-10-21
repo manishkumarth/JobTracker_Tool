@@ -2,3 +2,53 @@ export const ADMIN_EMAIL = "manish12099@gmail.com";
 
 export const isAdminUser = (user) =>
   Boolean(user?.isAdmin) || user?.email?.toLowerCase() === ADMIN_EMAIL;
+
+export const APPLICATION_STATUSES = [
+  "NEW",
+  "SAVED",
+  "APPLYING",
+  "APPLIED",
+  "EMAIL_SENT",
+  "FOLLOW_UP_REQUIRED",
+  "FOLLOW_UP_SENT",
+  "RECRUITER_REPLIED",
+  "SCREENING",
+  "PHONE_SCREEN",
+  "INTERVIEW_SCHEDULED",
+  "INTERVIEW_1",
+  "INTERVIEW_2",
+  "TECHNICAL_INTERVIEW",
+  "HR_INTERVIEW",
+  "ASSESSMENT",
+  "OFFER",
+  "SELECTED",
+  "REJECTED",
+  "WITHDRAWN",
+  "NO_RESPONSE",
+  "CLOSED",
+];
+
+export const STATUS_COLORS = {
+  NEW: "#6b7280",
+  SAVED: "#6b7280",
+  APPLYING: "#2563eb",
+  APPLIED: "#2563eb",
+  EMAIL_SENT: "#2563eb",
+  FOLLOW_UP_REQUIRED: "#d97706",
+  FOLLOW_UP_SENT: "#d97706",
+  RECRUITER_REPLIED: "#059669",
+  SCREENING: "#7c3aed",
+  PHONE_SCREEN: "#7c3aed",
+  INTERVIEW_SCHEDULED: "#7c3aed",
+  INTERVIEW_1: "#7c3aed",
+  INTERVIEW_2: "#7c3aed",
+  TECHNICAL_INTERVIEW: "#7c3aed",
+  HR_INTERVIEW: "#7c3aed",
+  ASSESSMENT: "#7c3aed",
+  OFFER: "#059669",
+  SELECTED: "#059669",
+  REJECTED: "#dc2626",
+  WITHDRAWN: "#6b7280",
+  NO_RESPONSE: "#6b7280",
+  CLOSED: "#6b7280",
+};
