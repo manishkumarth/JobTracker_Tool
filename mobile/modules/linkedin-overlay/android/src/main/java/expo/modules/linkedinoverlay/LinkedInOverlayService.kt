@@ -22,13 +22,14 @@ import android.widget.Toast
 class LinkedInOverlayService : Service() {
 
   private var windowManager: WindowManager? = null
-  private var overlayView: View? = null
+  var overlayView: View? = null
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onCreate() {
     super.onCreate()
     isRunning = true
+    instance = this
     startForegroundNotification()
     showOverlay()
   }
@@ -40,6 +41,7 @@ class LinkedInOverlayService : Service() {
   override fun onDestroy() {
     super.onDestroy()
     isRunning = false
+    instance = null
     removeOverlay()
   }
 
@@ -146,12 +148,15 @@ class LinkedInOverlayService : Service() {
       if (text.isBlank()) {
         Toast.makeText(this, "No post detected yet - scroll to a job post first", Toast.LENGTH_SHORT).show()
       } else {
-        // Emit event to JS via LinkedInOverlayModule
+        runOnUiThread {
+          button.text = "Saving..."
+          val bg = button.background as? GradientDrawable
+          try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+        }
         LinkedInOverlayModule.moduleInstance?.sendEvent(
           "postScraped",
           mapOf("text" to text, "url" to PostStore.latestUrl)
         )
-        Toast.makeText(this, "Post captured - check JobTrackr", Toast.LENGTH_SHORT).show()
       }
     }
 
@@ -179,5 +184,16 @@ class LinkedInOverlayService : Service() {
 
   companion object {
     @Volatile var isRunning = false
+    @Volatile var instance: LinkedInOverlayService? = null
+
+    fun updateOverlay(text: String, colorHex: String) {
+      val svc = instance ?: return
+      svc.runOnUiThread {
+        val v = svc.overlayView as? TextView ?: return@runOnUiThread
+        v.text = text
+        val bg = v.background as? GradientDrawable
+        try { bg?.setColor(android.graphics.Color.parseColor(colorHex)) } catch (_: Exception) {}
+      }
+    }
   }
 }

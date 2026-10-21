@@ -45,12 +45,16 @@ export default function LinkedInSetup() {
       const sub1 = LinkedInOverlay.addPostScrapedListener(async ({ text, url }) => {
         setStatus("Saving captured post...");
         try {
+          LinkedInOverlay.setOverlayStatus?.("Saving...", "#f59e0b");
           const app = await saveLinkedInPost({ text, url });
           setLastSaved(app.jobTitle || "Saved");
           setStatus("Saved: " + (app.jobTitle || "Untitled"));
+          LinkedInOverlay.setOverlayStatus?.("Saved", "#059669");
         } catch (e) {
           setStatus("Error: " + (e?.response?.data?.message || e.message));
+          LinkedInOverlay.setOverlayStatus?.("Failed", "#dc2626");
         }
+        setTimeout(() => LinkedInOverlay.setOverlayStatus?.("Save to JobTrackr", "#2563eb"), 2500);
       });
       const sub2 = LinkedInOverlay.addStatusListener?.(({ status: s, accessibilityEnabled, message }) => {
         if (s === "started") {
@@ -172,9 +176,12 @@ export default function LinkedInSetup() {
               {hasOverlay ? "Granted" : "Not granted"}
             </Text>
           </View>
-          <Text style={{ color: "#6b7280", fontSize: 12 }}>Lets the floating button appear over other apps (LinkedIn).</Text>
+          <Text style={{ color: "#6b7280", fontSize: 12 }}>Lets the floating button appear over other apps (LinkedIn). Look for &quot;JobTrackr&quot; in the list and enable &quot;Allow display over other apps&quot;.</Text>
           <TouchableOpacity onPress={openOverlaySettings} style={btn}>
             <Text style={btnText}>{hasOverlay ? "Manage Overlay Permission" : "Grant Overlay Permission"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={refreshPermissions} style={{ ...btn, backgroundColor: "#6b7280" }}>
+            <Text style={btnText}>I granted it - re-check</Text>
           </TouchableOpacity>
         </View>
 

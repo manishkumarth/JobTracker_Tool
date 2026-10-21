@@ -36,12 +36,35 @@ class LinkedInOverlayModule : Module() {
     AsyncFunction("openOverlaySettings") {
       val context = appContext.reactContext ?: return@AsyncFunction false
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        val intent = Intent(
-          Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-          android.net.Uri.parse("package:" + context.packageName)
-        )
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
+        // Try package-specific screen first
+        var opened = false
+        try {
+          val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            android.net.Uri.parse("package:" + context.packageName)
+          )
+          intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          context.startActivity(intent)
+          opened = true
+        } catch (_: Exception) { opened = false }
+        // Fallback to global overlay settings list
+        if (!opened) {
+          try {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            opened = true
+          } catch (_: Exception) { opened = false }
+        }
+        // Last resort: app details settings
+        if (!opened) {
+          try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+              android.net.Uri.parse("package:" + context.packageName))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+          } catch (_: Exception) {}
+        }
       }
       return@AsyncFunction true
     }
@@ -95,6 +118,10 @@ class LinkedInOverlayModule : Module() {
         )
       )
       return@AsyncFunction true
+    }
+
+    Function("setOverlayStatus") { text: String, color: String ->
+      LinkedInOverlayService.updateOverlay(text, color)
     }
 
     AsyncFunction("stopCapture") {

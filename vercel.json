@@ -37,6 +37,10 @@
       "dest": "/client/privacy-policy.html"
     },
     {
+      "src": "/jobtrackr.apk",
+      "dest": "/client/jobtrackr.apk"
+    },
+    {
       "handle": "filesystem"
     },
     {

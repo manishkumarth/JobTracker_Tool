@@ -36,6 +36,98 @@ router.get("/", async (req, res) => {
       query.date = { $gt: endOfToday };
     }
 
+    // Self-healing backfill: follow-up emails sent before follow-ups were
+    // synced with this collection (cron auto-followup, bulk send, older
+    // builds) created EmailLog entries but no FollowUp documents, so they
+    // never appeared here. Surface them now. Idempotent, runs before the
+    // main query so backfilled docs are included in this response.
+    const logs = await EmailLog.find({
+      owner: req.userId,
+      emailType: "Follow-up",
+      status: { $in: ["Sent", "Failed", "Pending"] },
+    })
+      .select("application status sentAt createdAt")
+      .sort({ createdAt: -1 });
+
+    if (logs.length) {
+      const sentAppIds = [];
+      const latestByApp = new Map();
+      for (const log of logs) {
+        if (!log.application) continue;
+        const key = String(log.application);
+        if (log.status === "Sent") sentAppIds.push(log.application);
+        if (!latestByApp.has(key)) latestByApp.set(key, log);
+      }
+
+      // Emails were sent for these apps: complete any still-pending email
+      // follow-up docs left over from before the sync existed.
+      if (sentAppIds.length) {
+        const pendingDocs = await FollowUp.find({
+          owner: req.userId,
+          type: "Email Follow-up",
+          status: "Pending",
+          application: { $in: sentAppIds },
+        }).select("_id application");
+        if (pendingDocs.length) {
+          await FollowUp.updateMany(
+            { _id: { $in: pendingDocs.map((d) => d._id) } },
+            { status: "Completed" }
+          );
+          await Application.updateMany(
+            { owner: req.userId, _id: { $in: pendingDocs.map((d) => d.application) } },
+            { $set: { followUpDate: null } }
+          );
+        }
+      }
+
+      // Create docs for apps that have follow-up email logs but no email
+      // follow-up doc at all. Sent -> Completed; Failed/stuck Pending ->
+      // Pending (so they show as overdue and can be retried from here).
+      const appsWithDocs = new Set(
+        (
+          await FollowUp.find({
+            owner: req.userId,
+            type: "Email Follow-up",
+            application: { $in: [...latestByApp.keys()] },
+          }).select("application")
+        ).map((d) => String(d.application))
+      );
+
+      const toCreate = [];
+      for (const [key, log] of latestByApp) {
+        if (appsWithDocs.has(key)) continue;
+        toCreate.push(
+          log.status === "Sent"
+            ? {
+                owner: req.userId,
+                application: log.application,
+                type: "Email Follow-up",
+                date: log.sentAt || log.createdAt,
+                note: "Follow-up email sent",
+                status: "Completed",
+              }
+            : {
+                owner: req.userId,
+                application: log.application,
+                type: "Email Follow-up",
+                date: log.createdAt,
+                note:
+                  log.status === "Failed"
+                    ? "Follow-up email failed - retry from here"
+                    : "Follow-up email not sent yet - retry from here",
+                status: "Pending",
+              }
+        );
+      }
+      if (toCreate.length) {
+        try {
+          await FollowUp.insertMany(toCreate, { ordered: false });
+        } catch {
+          /* concurrent request race - safe to ignore */
+        }
+      }
+    }
+
     const followUps = await FollowUp.find(query)
       .populate({ path: "application", select: "jobTitle companyName company" })
       .sort({ date: 1 });

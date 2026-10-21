@@ -19,6 +19,7 @@ import Admin from "./pages/Admin.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 import { GmailProvider } from "./context/GmailContext.jsx";
+import MobileAppBanner from "./components/MobileAppBanner.jsx";
 
 const Protected = ({ children }) => {
   const { user, loading } = useAuth();
@@ -29,6 +30,7 @@ const Protected = ({ children }) => {
 export default function App() {
   return (
     <GmailProvider>
+      <MobileAppBanner />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />

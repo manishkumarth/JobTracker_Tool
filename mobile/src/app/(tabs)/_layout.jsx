@@ -1,14 +1,16 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function TabLayout() {
+  const { colors } = useTheme();
   return (
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: "#2563eb",
-        tabBarInactiveTintColor: "#6b7280",
-        tabBarStyle: { paddingBottom: 4, height: 56 },
+        tabBarActiveTintColor: colors.tabActive,
+        tabBarInactiveTintColor: colors.tabInactive,
+        tabBarStyle: { paddingBottom: 4, height: 56, backgroundColor: colors.tabBg, borderTopColor: colors.border },
         tabBarIcon: ({ color, size }) => {
           let iconName = "grid-outline";
           if (route.name === "dashboard") iconName = "home-outline";
