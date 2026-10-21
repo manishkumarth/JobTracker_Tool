@@ -9,7 +9,7 @@ import { saveLinkedInPost } from "../../utils/savePipeline";
 let LinkedInOverlay = null;
 if (Platform.OS === "android") {
   try {
-    LinkedInOverlay = require("../../modules/linkedin-overlay");
+    LinkedInOverlay = require("../../../modules/linkedin-overlay");
   } catch {
     LinkedInOverlay = null;
   }
