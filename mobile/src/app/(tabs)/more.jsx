@@ -1,6 +1,8 @@
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import { Text, TouchableOpacity, ScrollView } from "react-native";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "../../context/AuthContext";
+import { isAdminUser } from "../../constants";
 
 const LINKS = [
   { label: "Companies", href: "/companies" },
@@ -9,15 +11,22 @@ const LINKS = [
   { label: "Templates", href: "/templates" },
   { label: "Follow-ups", href: "/followups" },
   { label: "Interviews", href: "/interviews" },
+  { label: "Reply to HR", href: "/hr-reply" },
   { label: "AI Settings", href: "/ai-settings" },
 ];
 
 export default function More() {
+  const { user } = useAuth();
+  const links = [...LINKS];
+  if (isAdminUser(user)) {
+    links.push({ label: "Admin Access", href: "/admin" });
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
         <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 4 }}>More</Text>
-        {LINKS.map((l) => (
+        {links.map((l) => (
           <TouchableOpacity
             key={l.href}
             onPress={() => router.push(l.href)}

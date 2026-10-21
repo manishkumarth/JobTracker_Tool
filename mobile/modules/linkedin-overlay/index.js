@@ -11,6 +11,10 @@ const LinkedInOverlayModule = requireNativeModule("LinkedInOverlay");
 export const startCapture = () => LinkedInOverlayModule.startCapture();
 export const stopCapture = () => LinkedInOverlayModule.stopCapture();
 export const isCaptureActive = () => LinkedInOverlayModule.isCaptureActive();
+export const hasOverlayPermission = () => LinkedInOverlayModule.hasOverlayPermission();
+export const isAccessibilityEnabled = () => LinkedInOverlayModule.isAccessibilityEnabled();
+export const openOverlaySettings = () => LinkedInOverlayModule.openOverlaySettings();
+export const openAccessibilitySettings = () => LinkedInOverlayModule.openAccessibilitySettings();
 
 const emitter = new EventEmitter(LinkedInOverlayModule);
 

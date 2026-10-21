@@ -20,6 +20,40 @@ class LinkedInOverlayModule : Module() {
       moduleInstance = null
     }
 
+    Function("hasOverlayPermission") {
+      val context = appContext.reactContext ?: return@Function false
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        Settings.canDrawOverlays(context)
+      } else {
+        true
+      }
+    }
+
+    Function("isAccessibilityEnabled") {
+      LinkedInCaptureService.instance != null
+    }
+
+    AsyncFunction("openOverlaySettings") {
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val intent = Intent(
+          Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+          android.net.Uri.parse("package:" + context.packageName)
+        )
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
+      return@AsyncFunction true
+    }
+
+    AsyncFunction("openAccessibilitySettings") {
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
+      return@AsyncFunction true
+    }
+
     AsyncFunction("startCapture") {
       val context = appContext.reactContext ?: return@AsyncFunction false
 
@@ -30,15 +64,26 @@ class LinkedInOverlayModule : Module() {
         )
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
-        sendEvent("captureStatus", mapOf("status" to "needsOverlayPermission"))
+        sendEvent(
+          "captureStatus",
+          mapOf(
+            "status" to "needsOverlayPermission",
+            "accessibilityEnabled" to (LinkedInCaptureService.instance != null)
+          )
+        )
         return@AsyncFunction false
       }
 
       val serviceIntent = Intent(context, LinkedInOverlayService::class.java)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(serviceIntent)
-      } else {
-        context.startService(serviceIntent)
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          context.startForegroundService(serviceIntent)
+        } else {
+          context.startService(serviceIntent)
+        }
+      } catch (e: Exception) {
+        sendEvent("captureStatus", mapOf("status" to "error", "message" to (e.message ?: "Could not start overlay")))
+        return@AsyncFunction false
       }
 
       val accessibilityEnabled = LinkedInCaptureService.instance != null

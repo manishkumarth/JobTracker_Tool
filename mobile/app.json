@@ -31,6 +31,17 @@
     },
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "2d42d8ab-2f62-4300-baba-a03fd0bd9663"
+      }
+    },
+    "owner": "manish2030"
   }
 }
