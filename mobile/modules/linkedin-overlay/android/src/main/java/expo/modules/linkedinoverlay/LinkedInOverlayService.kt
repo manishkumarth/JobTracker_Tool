@@ -148,7 +148,7 @@ class LinkedInOverlayService : Service() {
       if (text.isBlank()) {
         Toast.makeText(this, "No post detected yet - scroll to a job post first", Toast.LENGTH_SHORT).show()
       } else {
-        runOnUiThread {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
           button.text = "Saving..."
           val bg = button.background as? GradientDrawable
           try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
@@ -188,8 +188,8 @@ class LinkedInOverlayService : Service() {
 
     fun updateOverlay(text: String, colorHex: String) {
       val svc = instance ?: return
-      svc.runOnUiThread {
-        val v = svc.overlayView as? TextView ?: return@runOnUiThread
+      android.os.Handler(android.os.Looper.getMainLooper()).post {
+        val v = svc.overlayView as? TextView ?: return@post
         v.text = text
         val bg = v.background as? GradientDrawable
         try { bg?.setColor(android.graphics.Color.parseColor(colorHex)) } catch (_: Exception) {}
