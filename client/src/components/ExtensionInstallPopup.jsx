@@ -1,7 +1,7 @@
 const STEPS = [
   {
     title: "Get the extension",
-    text: "Click \"Add to Chrome\" below if available, or download the ZIP and unzip it somewhere permanent on your computer.",
+    text: "Click \"Add to Chrome\" below to install the extension from the Chrome Web Store.",
   },
   {
     title: "Open Chrome extensions",
@@ -26,8 +26,7 @@ const STEPS = [
  * published, ZIP download otherwise).
  */
 export default function ExtensionInstallPopup({ onClose }) {
-  const storeUrl = import.meta.env.VITE_CHROME_STORE_URL || "";
-  const zipUrl = `${import.meta.env.BASE_URL}jobtrackr-extension.zip`;
+  const storeUrl = import.meta.env.VITE_CHROME_STORE_URL || "https://chromewebstore.google.com/detail/ohlgnebfcmngomlffmdafhclkmmjgdkf?utm_source=item-share-cb";
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -71,25 +70,18 @@ export default function ExtensionInstallPopup({ onClose }) {
           auto-send in the extension popup to email the recruiter instantly.
         </div>
 
-        <div className="flex items-center gap-2">
-          {storeUrl && (
-            <a
-              href={storeUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="btn btn-primary btn-sm flex-1 text-center"
-            >
-              Add to Chrome
-            </a>
-          )}
+        {storeUrl ? (
           <a
-            href={zipUrl}
-            download="jobtrackr-extension.zip"
-            className={`btn ${storeUrl ? "btn-secondary" : "btn-primary"} btn-sm flex-1 text-center`}
+            href={storeUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-primary btn-sm w-full text-center"
           >
-            Download extension ZIP
+            Add to Chrome
           </a>
-        </div>
+        ) : (
+          <p className="text-xs text-muted text-center">Extension not available yet.</p>
+        )}
 
         <ol className="space-y-3 max-h-[35vh] overflow-y-auto pr-1">
           {STEPS.map((s, i) => (
