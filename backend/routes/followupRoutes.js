@@ -181,9 +181,32 @@ router.post("/", async (req, res) => {
 
 // PUT /api/followups/:id  (reschedule / edit note / change type)
 router.put("/:id", async (req, res) => {
-  const followUp = await FollowUp.findOneAndUpdate({ _id: req.params.id, owner: req.userId }, req.body, { new: true });
-  if (!followUp) return res.status(404).json({ message: "Not found" });
-  res.json(followUp);
+  try {
+    const allowed = {};
+    if (req.body.date != null) allowed.date = new Date(req.body.date);
+    if (req.body.note != null) allowed.note = req.body.note;
+    if (req.body.type != null) allowed.type = req.body.type;
+    if (req.body.status != null) allowed.status = req.body.status;
+
+    const followUp = await FollowUp.findOneAndUpdate(
+      { _id: req.params.id, owner: req.userId },
+      allowed,
+      { new: true }
+    );
+    if (!followUp) return res.status(404).json({ message: "Not found" });
+
+    // Keep application.followUpDate in sync when rescheduling
+    if (allowed.date) {
+      await Application.updateOne(
+        { _id: followUp.application, owner: req.userId },
+        { $set: { followUpDate: allowed.date } }
+      );
+    }
+
+    res.json(followUp);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 // PATCH /api/followups/:id/complete
