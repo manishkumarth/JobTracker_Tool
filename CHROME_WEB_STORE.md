@@ -5,7 +5,7 @@ The workflow in `.github/workflows/publish-extension.yml` publishes the
 `main` (only when files under `extension/` change), or manually via the
 **Actions → Publish Chrome Extension → Run workflow** button.
 
-It needs four repository secrets, which you create once.
+It needs five repository secrets, which you create once.
 
 ## 1. Create a Google Cloud project + OAuth client
 
@@ -42,6 +42,7 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `CHROME_CLIENT_ID` | From step 1.4 |
 | `CHROME_CLIENT_SECRET` | From step 1.4 |
 | `CHROME_REFRESH_TOKEN` | From step 2.6 |
+| `CHROME_PUBLISHER_ID` | Your Chrome Web Store publisher ID (from the developer dashboard URL) |
 
 ## 4. How it triggers
 

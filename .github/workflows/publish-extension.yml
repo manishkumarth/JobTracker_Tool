@@ -154,12 +154,12 @@ jobs:
             exit 1
           }
 
-          echo "Uploading extension package..."
+           echo "Uploading and publishing extension package..."
 
-          chrome-webstore-upload upload \
-            --source jobtrackr-extension.zip \
-            --extension-id "$EXTENSION_ID" \
-            --publisher-id "$PUBLISHER_ID"
+           chrome-webstore-upload \
+             --source jobtrackr-extension.zip \
+             --extension-id "$EXTENSION_ID" \
+             --publisher-id "$PUBLISHER_ID"
 
       - name: Workflow summary
         if: success()
