@@ -29,20 +29,56 @@ jobs:
       - name: Install Chrome Web Store CLI
         run: npm install -g chrome-webstore-upload-cli
 
-      - name: Read extension version
-        id: version
-        shell: bash
+      - name: Validate manifest
         run: |
-          VERSION=$(node -p "require('./extension/manifest.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          node -e "
+            const fs = require('fs');
+            const m = JSON.parse(
+              fs.readFileSync('extension/manifest.json', 'utf8')
+            );
+            console.log('Name:', m.name);
+            console.log('Version:', m.version);
+            if (m.manifest_version !== 3) {
+              throw new Error('Expected Manifest V3');
+            }
+            for (const p of [
+              'background.service_worker',
+              'action.default_popup'
+            ]) {
+              const value = p.split('.').reduce((o, k) => o?.[k], m);
+              if (!value) throw new Error('Missing manifest field: ' + p);
+            }
+            const files = [
+              'background.js',
+              'popup.html',
+              'content.js',
+              'content.css',
+              'icons/icon-16.png',
+              'icons/icon-48.png',
+              'icons/icon-128.png'
+            ];
+            for (const f of files) {
+              if (!fs.existsSync('extension/' + f)) {
+                throw new Error('Missing extension file: ' + f);
+              }
+            }
+            console.log('Manifest and referenced files look valid.');
+          "
 
       - name: Build extension ZIP
-        shell: bash
         run: |
           cd extension
           zip -r ../jobtrackr-extension.zip . \
             -x "*.DS_Store" \
             -x "icons/generate-icons.mjs"
+
+      - name: Validate ZIP
+        run: |
+          unzip -t jobtrackr-extension.zip
+          echo "ZIP root files:"
+          unzip -Z1 jobtrackr-extension.zip | head -40
+          echo "Packaged manifest:"
+          unzip -p jobtrackr-extension.zip manifest.json
 
       - name: Upload to Chrome Web Store
         env:
@@ -50,19 +86,15 @@ jobs:
           CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
-          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
-        shell: bash
         run: |
-          test -n "$EXTENSION_ID" || { echo "Missing CHROME_EXTENSION_ID secret"; exit 1; }
-          test -n "$CLIENT_ID" || { echo "Missing CHROME_CLIENT_ID secret"; exit 1; }
-          test -n "$CLIENT_SECRET" || { echo "Missing CHROME_CLIENT_SECRET secret"; exit 1; }
-          test -n "$REFRESH_TOKEN" || { echo "Missing CHROME_REFRESH_TOKEN secret"; exit 1; }
-          test -n "$PUBLISHER_ID" || { echo "Missing CHROME_PUBLISHER_ID secret"; exit 1; }
+          test -n "$EXTENSION_ID" || exit 1
+          test -n "$CLIENT_ID" || exit 1
+          test -n "$CLIENT_SECRET" || exit 1
+          test -n "$REFRESH_TOKEN" || exit 1
 
           chrome-webstore-upload upload \
             --source jobtrackr-extension.zip \
             --extension-id "$EXTENSION_ID"
 
       - name: Summary
-        run: |
-          echo "Uploaded extension version ${{ steps.version.outputs.version }}"
+        run: echo "Extension upload completed."
