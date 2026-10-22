@@ -2,7 +2,6 @@
   if (window !== window.top || window.__jtLinkedInLoaded) return;
   window.__jtLinkedInLoaded = true;
 
-  // LinkedIn changes their markup often. Try several known containers.
   const POST_SELECTORS = [
     '[data-urn^="urn:li:activity"]',
     '[data-id^="urn:li:activity"]',
@@ -24,9 +23,21 @@
   ];
 
   const rejected = new Set();
+  const saveQueue = [];
+  let queueRunning = false;
+  let queueDone = 0;
+  let queueFailed = 0;
+
+  // Auto-scroll state
+  let autoScrollOn = false;
+  let autoScrollTimer = null;
+  let scrollMinMs = 2500;
+  let scrollMaxMs = 7000;
 
   let toastEl = null;
   let toastTimer = null;
+  let panelEl = null;
+  let queueStatusEl = null;
 
   function send(msg) {
     return chrome.runtime.sendMessage(msg).catch(() => null);
@@ -39,10 +50,25 @@
       document.body.appendChild(toastEl);
     }
     toastEl.textContent = text;
-    toastEl.classList.remove("jt-toast-err", "jt-toast-info");
-    toastEl.classList.add(kind === "err" ? "jt-toast-err" : "jt-toast-info", "jt-toast-show");
+    toastEl.classList.remove("jt-toast-err", "jt-toast-info", "jt-toast-ok");
+    const cls = kind === "err" ? "jt-toast-err" : kind === "ok" ? "jt-toast-ok" : "jt-toast-info";
+    toastEl.classList.add(cls, "jt-toast-show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("jt-toast-show"), 4500);
+    toastTimer = setTimeout(() => toastEl.classList.remove("jt-toast-show"), 5000);
+  }
+
+  function updateQueueUI() {
+    if (!queueStatusEl) return;
+    const pending = saveQueue.length;
+    if (pending === 0 && !queueRunning) {
+      queueStatusEl.textContent = queueDone || queueFailed
+        ? `Done · ${queueDone} saved${queueFailed ? `, ${queueFailed} failed` : ""}`
+        : "Queue empty";
+      return;
+    }
+    queueStatusEl.textContent = queueRunning
+      ? `Processing… ${pending} left · ${queueDone} done`
+      : `Queued: ${pending}`;
   }
 
   function postUrl(el) {
@@ -50,7 +76,9 @@
     if (urn.startsWith("urn:li:activity:")) {
       return `https://www.linkedin.com/feed/update/${urn}/`;
     }
-    const link = el.querySelector('a[href*="/feed/update/urn:li:activity"], a[href*="/feed/update/urn%3Ali%3Aactivity"]');
+    const link = el.querySelector(
+      'a[href*="/feed/update/urn:li:activity"], a[href*="/feed/update/urn%3Ali%3Aactivity"]'
+    );
     return link ? link.href : "";
   }
 
@@ -69,6 +97,100 @@
     if (url && rejected.has(url)) el.classList.add("jt-hidden");
   }
 
+  // ---------- Save queue (non-blocking) ----------
+  function enqueueSave({ text, url, button }) {
+    if (!text) {
+      showToast("Could not read this post's text.", "err");
+      return;
+    }
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Queued";
+      button.classList.add("jt-queued");
+    }
+    saveQueue.push({ text, url, button });
+    updateQueueUI();
+    showToast(`Added to queue (${saveQueue.length} pending)`, "info");
+    processQueue();
+  }
+
+  async function processQueue() {
+    if (queueRunning) return;
+    queueRunning = true;
+    updateQueueUI();
+
+    while (saveQueue.length > 0) {
+      const item = saveQueue.shift();
+      updateQueueUI();
+      if (item.button) {
+        item.button.textContent = "Saving...";
+      }
+
+      try {
+        const res = await send({ type: "saveJob", text: item.text, url: item.url });
+
+        if (res && res.ok && res.already) {
+          queueDone++;
+          if (item.button) {
+            item.button.textContent = "Already saved";
+            item.button.classList.add("jt-ok");
+          }
+          showToast(`Already saved: ${res.application?.jobTitle || "post"}`, "info");
+        } else if (res && res.ok) {
+          queueDone++;
+          const title = res.application?.jobTitle || "Job post";
+          if (item.button) {
+            item.button.textContent = res.emailSent ? "Saved + email" : "Saved";
+            item.button.classList.add("jt-ok");
+          }
+          if (res.emailSent) {
+            showToast(`✓ Saved & email sent: ${title}`, "ok");
+          } else {
+            showToast(`✓ Saved: ${title}`, "ok");
+            if (res.emailSkipped) showToast(res.emailSkipped, "info");
+          }
+        } else {
+          queueFailed++;
+          if (item.button) {
+            item.button.disabled = false;
+            item.button.textContent = "Save to JobTrackr";
+            item.button.classList.remove("jt-queued");
+          }
+          if (res && res.code === "NOT_LOGGED_IN") {
+            showToast("Open JobTrackr extension and log in first.", "err");
+          } else {
+            showToast((res && res.error) || "Save failed.", "err");
+          }
+        }
+      } catch (e) {
+        queueFailed++;
+        if (item.button) {
+          item.button.disabled = false;
+          item.button.textContent = "Save to JobTrackr";
+          item.button.classList.remove("jt-queued");
+        }
+        showToast("Save failed. Try again.", "err");
+      }
+      updateQueueUI();
+      // Small pause between queue items so we don't hammer the API
+      if (saveQueue.length > 0) await sleep(600 + Math.random() * 400);
+    }
+
+    queueRunning = false;
+    updateQueueUI();
+    if (queueDone > 0) {
+      showToast(
+        `Queue finished · ${queueDone} saved${queueFailed ? `, ${queueFailed} failed` : ""}`,
+        queueFailed ? "info" : "ok"
+      );
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  // ---------- Inject Save / Hide on posts ----------
   function inject(el) {
     const bar = document.createElement("div");
     bar.className = "jt-bar";
@@ -88,51 +210,9 @@
     el.style.position = el.style.position || "relative";
     el.prepend(bar);
 
-    save.addEventListener("click", async () => {
+    save.addEventListener("click", () => {
       if (save.disabled) return;
-      const text = postText(el);
-      if (!text) {
-        showToast("Could not read this post's text.", "err");
-        return;
-      }
-      const url = postUrl(el);
-
-      save.disabled = true;
-      save.textContent = "Saving...";
-
-      const res = await send({ type: "saveJob", text, url });
-
-      if (res && res.ok && res.already) {
-        save.textContent = "Already saved";
-        save.classList.add("jt-ok");
-        return;
-      }
-
-      if (res && res.ok) {
-        if (res.emailSent) {
-          save.textContent = "Saved + email sent";
-          showToast(`Saved "${res.application.jobTitle}" and sent the application email.`, "info");
-        } else {
-          save.textContent = "Saved";
-          if (res.emailSkipped) showToast(res.emailSkipped, "info");
-          if (res.parseFailed) showToast("Saved, but AI parsing failed - review the details in JobTrackr.", "info");
-        }
-        save.classList.add("jt-ok");
-        return;
-      }
-
-      save.disabled = false;
-      save.textContent = "Save to JobTrackr";
-
-      if (res && res.code === "NOT_LOGGED_IN") {
-        showToast("Open the JobTrackr extension popup and log in first.", "err");
-        return;
-      }
-      if (res && res.data && res.data.featureDisabled) {
-        showToast("This feature is disabled for your account - contact support.", "err");
-        return;
-      }
-      showToast((res && res.error) || "Save failed. Try again.", "err");
+      enqueueSave({ text: postText(el), url: postUrl(el), button: save });
     });
 
     hide.addEventListener("click", () => {
@@ -147,7 +227,6 @@
   }
 
   function scan() {
-    let found = 0;
     document.querySelectorAll(POST_SELECTOR).forEach((el) => {
       if (el.dataset.jtInjected) return;
       if ((el.innerText || "").trim().length < 60) return;
@@ -155,74 +234,181 @@
       el.dataset.jtInjected = "1";
       applyRejection(el);
       inject(el);
-      found++;
     });
-    // Always ensure the floating button is present as a reliable fallback
-    ensureFloatingButton();
+    ensurePanel();
   }
 
-  let floatingBtn = null;
-  function ensureFloatingButton() {
-    if (floatingBtn && document.body.contains(floatingBtn)) return;
-    floatingBtn = document.createElement("button");
-    floatingBtn.type = "button";
-    floatingBtn.className = "jt-float";
-    floatingBtn.textContent = "Save visible post to JobTrackr";
-    floatingBtn.title = "JobTrackr is active. Click to save the post currently in view.";
-    document.body.appendChild(floatingBtn);
-    floatingBtn.addEventListener("click", async () => {
-      const viewportCenter = window.innerHeight / 2;
-      const candidates = Array.from(document.querySelectorAll("div, section, article"))
-        .filter((el) => {
-          const text = (el.innerText || "").trim();
-          if (text.length < 120 || text.length > 6000) return false;
-          if (el.closest("aside, nav, footer, header, [role='complementary'], [role='navigation']")) return false;
-          if (/accessibility|help center|privacy & terms|ad choices|business services/i.test(text)) return false;
-          return true;
-        })
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const elCenter = rect.top + rect.height / 2;
-          const distanceFromCenter = Math.abs(elCenter - viewportCenter);
-          return { el, distanceFromCenter };
-        })
-        .sort((a, b) => a.distanceFromCenter - b.distanceFromCenter);
-      const target = candidates[0]?.el;
+  // ---------- Control panel (queue status + auto-scroll) ----------
+  function ensurePanel() {
+    if (panelEl && document.body.contains(panelEl)) return;
 
-      if (target) {
-        target.style.outline = "3px solid #4f46e5";
-        target.style.outlineOffset = "4px";
-        setTimeout(() => { target.style.outline = ""; target.style.outlineOffset = ""; }, 2000);
+    panelEl = document.createElement("div");
+    panelEl.className = "jt-panel";
+    panelEl.innerHTML = `
+      <div class="jt-panel-title">JobTrackr</div>
+      <div class="jt-queue-status" id="jt-queue-status">Queue empty</div>
+      <button type="button" class="jt-panel-btn jt-save-visible" id="jt-save-visible">Save visible post</button>
+      <div class="jt-scroll-row">
+        <button type="button" class="jt-panel-btn jt-scroll-toggle" id="jt-scroll-toggle">▶ Auto-scroll</button>
+      </div>
+      <div class="jt-delay-row">
+        <label>Min <input type="number" id="jt-delay-min" min="1" max="60" step="0.5" value="2.5" />s</label>
+        <label>Max <input type="number" id="jt-delay-max" min="1" max="120" step="0.5" value="7" />s</label>
+      </div>
+      <div class="jt-hint">Random delay between scrolls · human-like</div>
+    `;
+    document.body.appendChild(panelEl);
+
+    queueStatusEl = panelEl.querySelector("#jt-queue-status");
+    const minInput = panelEl.querySelector("#jt-delay-min");
+    const maxInput = panelEl.querySelector("#jt-delay-max");
+    const toggleBtn = panelEl.querySelector("#jt-scroll-toggle");
+    const saveVisibleBtn = panelEl.querySelector("#jt-save-visible");
+
+    minInput.value = (scrollMinMs / 1000).toString();
+    maxInput.value = (scrollMaxMs / 1000).toString();
+
+    minInput.addEventListener("change", () => {
+      let v = parseFloat(minInput.value);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      if (v > 60) v = 60;
+      scrollMinMs = Math.round(v * 1000);
+      minInput.value = (scrollMinMs / 1000).toString();
+      if (scrollMinMs > scrollMaxMs) {
+        scrollMaxMs = scrollMinMs;
+        maxInput.value = (scrollMaxMs / 1000).toString();
       }
+      persistScrollSettings();
+    });
+
+    maxInput.addEventListener("change", () => {
+      let v = parseFloat(maxInput.value);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      if (v > 120) v = 120;
+      scrollMaxMs = Math.round(v * 1000);
+      maxInput.value = (scrollMaxMs / 1000).toString();
+      if (scrollMaxMs < scrollMinMs) {
+        scrollMinMs = scrollMaxMs;
+        minInput.value = (scrollMinMs / 1000).toString();
+      }
+      persistScrollSettings();
+    });
+
+    toggleBtn.addEventListener("click", () => {
+      if (autoScrollOn) stopAutoScroll();
+      else startAutoScroll();
+    });
+
+    saveVisibleBtn.addEventListener("click", () => {
+      const target = findVisiblePost();
       if (!target) {
-        showToast("Could not find a post on this page. Scroll to a job post and try again.", "err");
+        showToast("No post in view. Scroll a bit and try again.", "err");
         return;
       }
-      const text = (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
-      if (!text) {
-        showToast("Could not read post text.", "err");
-        return;
-      }
-      floatingBtn.disabled = true;
-      floatingBtn.textContent = "Saving...";
-      const url = location.href;
-      const res = await send({ type: "saveJob", text, url });
-      floatingBtn.disabled = false;
-      floatingBtn.textContent = "Save visible post to JobTrackr";
-      if (res && res.ok) {
-        if (res.already) showToast("Already saved.", "info");
-        else if (res.emailSent) showToast(`Saved "${res.application.jobTitle}" and sent email.`, "info");
-        else showToast(`Saved "${res.application.jobTitle || "job"}".`, "info");
-      } else {
-        if (res && res.code === "NOT_LOGGED_IN") {
-          showToast("Open the JobTrackr extension icon and log in first.", "err");
-        } else {
-          showToast((res && res.error) || "Save failed.", "err");
-        }
-      }
+      target.style.outline = "3px solid #4f46e5";
+      target.style.outlineOffset = "4px";
+      setTimeout(() => {
+        target.style.outline = "";
+        target.style.outlineOffset = "";
+      }, 1500);
+      enqueueSave({
+        text: (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000),
+        url: location.href,
+        button: null,
+      });
+    });
+
+    updateQueueUI();
+    updateScrollToggleUI();
+  }
+
+  function findVisiblePost() {
+    const viewportCenter = window.innerHeight / 2;
+    const candidates = Array.from(document.querySelectorAll("div, section, article"))
+      .filter((el) => {
+        const text = (el.innerText || "").trim();
+        if (text.length < 120 || text.length > 6000) return false;
+        if (el.closest("aside, nav, footer, header, [role='complementary'], [role='navigation']")) return false;
+        if (/accessibility|help center|privacy & terms|ad choices|business services/i.test(text)) return false;
+        return true;
+      })
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const elCenter = rect.top + rect.height / 2;
+        return { el, distanceFromCenter: Math.abs(elCenter - viewportCenter) };
+      })
+      .sort((a, b) => a.distanceFromCenter - b.distanceFromCenter);
+    return candidates[0]?.el || null;
+  }
+
+  // ---------- Human-like auto-scroll ----------
+  function randomDelay() {
+    const min = Math.min(scrollMinMs, scrollMaxMs);
+    const max = Math.max(scrollMinMs, scrollMaxMs);
+    return min + Math.floor(Math.random() * (max - min + 1));
+  }
+
+  function humanScrollStep() {
+    // Scroll roughly 60–90% of viewport, with slight random offset
+    const amount = Math.floor(window.innerHeight * (0.55 + Math.random() * 0.35));
+    window.scrollBy({ top: amount, behavior: "smooth" });
+  }
+
+  function scheduleNextScroll() {
+    if (!autoScrollOn) return;
+    const delay = randomDelay();
+    autoScrollTimer = setTimeout(() => {
+      if (!autoScrollOn) return;
+      humanScrollStep();
+      // Re-scan posts after scroll settles
+      setTimeout(() => scan(), 800);
+      scheduleNextScroll();
+    }, delay);
+  }
+
+  function startAutoScroll() {
+    autoScrollOn = true;
+    updateScrollToggleUI();
+    showToast(`Auto-scroll ON · delay ${scrollMinMs / 1000}–${scrollMaxMs / 1000}s`, "info");
+    // First scroll after a short pause
+    autoScrollTimer = setTimeout(() => {
+      if (!autoScrollOn) return;
+      humanScrollStep();
+      scheduleNextScroll();
+    }, 800 + Math.random() * 700);
+  }
+
+  function stopAutoScroll() {
+    autoScrollOn = false;
+    if (autoScrollTimer) {
+      clearTimeout(autoScrollTimer);
+      autoScrollTimer = null;
+    }
+    updateScrollToggleUI();
+    showToast("Auto-scroll stopped", "info");
+  }
+
+  function updateScrollToggleUI() {
+    const btn = panelEl && panelEl.querySelector("#jt-scroll-toggle");
+    if (!btn) return;
+    if (autoScrollOn) {
+      btn.textContent = "⏹ Stop scroll";
+      btn.classList.add("jt-scroll-on");
+    } else {
+      btn.textContent = "▶ Auto-scroll";
+      btn.classList.remove("jt-scroll-on");
+    }
+  }
+
+  function persistScrollSettings() {
+    send({
+      type: "setSettings",
+      scrollMinMs,
+      scrollMaxMs,
     });
   }
 
+  // ---------- Boot ----------
   let scanTimer = null;
   const observer = new MutationObserver(() => {
     if (scanTimer) return;
@@ -232,11 +418,12 @@
     }, 350);
   });
 
-  // Start as soon as possible
   function start() {
     send({ type: "getState" }).then((res) => {
       if (res && res.ok && res.state) {
         (res.state.rejected || []).forEach((u) => rejected.add(u));
+        if (typeof res.state.scrollMinMs === "number") scrollMinMs = res.state.scrollMinMs;
+        if (typeof res.state.scrollMaxMs === "number") scrollMaxMs = res.state.scrollMaxMs;
       }
       scan();
     });

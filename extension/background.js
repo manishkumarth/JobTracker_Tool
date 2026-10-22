@@ -18,6 +18,8 @@ async function getRaw() {
     "jt_user",
     "jt_auto_send",
     "jt_rejected",
+    "jt_scroll_min_ms",
+    "jt_scroll_max_ms",
   ]);
 }
 
@@ -29,6 +31,8 @@ async function getState() {
     user: s.jt_user || null,
     autoSend: !!s.jt_auto_send,
     rejected: s.jt_rejected || [],
+    scrollMinMs: typeof s.jt_scroll_min_ms === "number" ? s.jt_scroll_min_ms : 2500,
+    scrollMaxMs: typeof s.jt_scroll_max_ms === "number" ? s.jt_scroll_max_ms : 7000,
   };
 }
 
@@ -117,10 +121,12 @@ async function logout() {
   return { ok: true, state: await getState() };
 }
 
-async function setSettings({ apiBase, autoSend }) {
+async function setSettings({ apiBase, autoSend, scrollMinMs, scrollMaxMs }) {
   const patch = {};
   if (typeof apiBase === "string") patch.jt_api_base = cleanBase(apiBase);
   if (typeof autoSend === "boolean") patch.jt_auto_send = autoSend;
+  if (typeof scrollMinMs === "number" && scrollMinMs >= 1000) patch.jt_scroll_min_ms = Math.round(scrollMinMs);
+  if (typeof scrollMaxMs === "number" && scrollMaxMs >= 1000) patch.jt_scroll_max_ms = Math.round(scrollMaxMs);
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
   return { ok: true, state: await getState() };
 }
