@@ -31,7 +31,7 @@ export default function HRReply() {
       const list = Array.isArray(d) ? d : d?.resumes || [];
       setResumes(list);
       const def = list.find((r) => r.isDefault);
-      if (def) setResumeId(def._id);
+      if (list.length) setResumeId(def?._id || list[0]._id);
     }).catch(() => {});
   }, []);
 
@@ -83,12 +83,13 @@ export default function HRReply() {
           setGenerating(false);
           return;
         }
+        const effectiveResumeId = resumeId || resumes.find((r) => r.isDefault)?._id || resumes[0]?._id || "";
         const result = await sendMail({
           recipientEmail: recipientEmail.trim(),
           recipientName: recipientName.trim(),
           subject: data.subject || "",
           message: data.body || "",
-          resumeId: resumeId || undefined,
+          resumeId: effectiveResumeId || undefined,
           emailType,
           isAiGenerated: true,
         });
@@ -112,12 +113,13 @@ export default function HRReply() {
     }
     setSending(true);
     try {
+      const effectiveResumeId = resumeId || resumes.find((r) => r.isDefault)?._id || resumes[0]?._id || "";
       const result = await sendMail({
         recipientEmail: recipientEmail.trim(),
         recipientName: recipientName.trim(),
         subject,
         message: body,
-        resumeId: resumeId || undefined,
+        resumeId: effectiveResumeId || undefined,
         emailType,
         isAiGenerated: true,
       });
@@ -135,7 +137,9 @@ export default function HRReply() {
     <div className="space-y-6 animate-fade-in">
       <div className="page-header">
         <h1 className="page-title">Reply to Recruiter</h1>
-        <p className="page-subtitle">Paste what the HR asked, and I'll draft a reply using your profile details (CTC, notice period, experience, ...).</p>
+        <p className="page-subtitle">
+          Paste what HR asked and I'll answer only those details. Your resume, portfolio, LinkedIn and GitHub are always included.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -211,7 +215,7 @@ export default function HRReply() {
             {body.trim() && (
               <div className="flex items-center gap-2">
                 <select className="input text-xs" value={resumeId} onChange={(e) => setResumeId(e.target.value)}>
-                  <option value="">No resume attached</option>
+                  {resumes.length === 0 && <option value="">No resume on profile</option>}
                   {resumes.map((r) => (
                     <option key={r._id} value={r._id}>
                       {r.originalName}{r.isDefault ? " (default)" : ""}
@@ -244,8 +248,9 @@ export default function HRReply() {
             <h3 className="font-semibold text-primary">Tips</h3>
             <ul className="list-disc pl-5 space-y-1.5">
               <li>Make sure your profile has current/expected CTC, notice period and total experience filled.</li>
+              <li>Only the details HR asks for are included — CTC is added only when requested.</li>
+              <li>Your resume is always attached, and portfolio/LinkedIn/GitHub links are always included.</li>
               <li>Pick a template to match your company's email style.</li>
-              <li>The reply's CTC/experience values come only from your profile — no guesswork.</li>
               <li>Gmail must be connected in Settings before sending.</li>
             </ul>
           </div>

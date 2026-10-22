@@ -339,11 +339,12 @@ export default function Applications() {
                   <div className="flex items-center gap-1.5">
                     <input type="date" className="input text-xs w-auto" value={bulkFollowUpDate} onChange={(e) => setBulkFollowUpDate(e.target.value)} min={new Date().toISOString().split("T")[0]} />
                     <select className="input text-xs w-auto" value={bulkFollowUpType} onChange={(e) => setBulkFollowUpType(e.target.value)}>
-                      <option value="General">Follow-up</option>
-                      <option value="Call">Call</option>
-                      <option value="Email">Email</option>
-                      <option value="LinkedIn">LinkedIn</option>
-                      <option value="Other">Other</option>
+                      <option value="Email Follow-up">Email Follow-up</option>
+                      <option value="Call Follow-up">Call Follow-up</option>
+                      <option value="LinkedIn Follow-up">LinkedIn Follow-up</option>
+                      <option value="Recruiter Follow-up">Recruiter Follow-up</option>
+                      <option value="Interview Follow-up">Interview Follow-up</option>
+                      <option value="General">General</option>
                     </select>
                     <input type="text" placeholder="Note..." className="input text-xs w-32" value={bulkFollowUpNote} onChange={(e) => setBulkFollowUpNote(e.target.value)} />
                     <label className="flex items-center gap-1.5 cursor-pointer shrink-0">

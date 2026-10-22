@@ -145,7 +145,7 @@ router.post("/bulk/status", async (req, res) => {
 // POST /api/applications/bulk/followup  -> bulk follow-up scheduling
 router.post("/bulk/followup", async (req, res) => {
   try {
-    const { ids, date, type, note } = req.body;
+    const { ids, date, type, note, hrRequest, autoSend = false } = req.body;
     if (!ids?.length || !date) return res.status(400).json({ message: "ids and date are required" });
 
     const FollowUp = (await import("../models/FollowUp.js")).default;
@@ -158,6 +158,8 @@ router.post("/bulk/followup", async (req, res) => {
       type: type || "General",
       date: new Date(date),
       note: note || "",
+      hrRequest: hrRequest || "",
+      autoSend: Boolean(autoSend),
     }));
 
     await FollowUp.insertMany(followUps);

@@ -34,7 +34,7 @@ export default function ApplicationDetail() {
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState("");
   const [showDelete, setShowDelete] = useState(false);
-  const [followUpForm, setFollowUpForm] = useState({ date: "", type: "Email Follow-up", note: "" });
+  const [followUpForm, setFollowUpForm] = useState({ date: "", type: "Email Follow-up", note: "", hrRequest: "", autoSend: false });
   const [interviewForm, setInterviewForm] = useState({ date: "", round: "Round 1", interviewType: "Video", meetingUrl: "", interviewer: "" });
   const [callForm, setCallForm] = useState({ result: "Connected", notes: "", durationMinutes: "" });
   const [genFollowUp, setGenFollowUp] = useState(null);
@@ -93,13 +93,26 @@ export default function ApplicationDetail() {
     }
   };
 
+  const setFollowUpAfterDays = (days) => {
+    const when = new Date();
+    when.setDate(when.getDate() + days);
+    when.setHours(9, 0, 0, 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    const value = `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}`;
+    setFollowUpForm((prev) => ({ ...prev, date: value }));
+  };
+
   const submitFollowUp = async (e) => {
     e.preventDefault();
-    if (!followUpForm.date) return toast.error("Pick a date");
+    if (!followUpForm.date) return toast.error("Pick a date and time");
     try {
-      await createFollowUp({ application: id, ...followUpForm });
-      toast.success("Follow-up scheduled");
-      setFollowUpForm({ date: "", type: "Email Follow-up", note: "" });
+      await createFollowUp({
+        application: id,
+        ...followUpForm,
+        date: new Date(followUpForm.date).toISOString(),
+      });
+      toast.success(followUpForm.autoSend ? "Follow-up scheduled with auto-send" : "Follow-up scheduled");
+      setFollowUpForm({ date: "", type: "Email Follow-up", note: "", hrRequest: "", autoSend: false });
       load();
     } catch {
       toast.error("Failed to schedule follow-up");
@@ -447,8 +460,20 @@ export default function ApplicationDetail() {
                 Schedule Follow-up
               </h2>
               <form onSubmit={submitFollowUp} className="space-y-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 3, 5].map((days) => (
+                    <button
+                      key={days}
+                      type="button"
+                      onClick={() => setFollowUpAfterDays(days)}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-yellow-100 dark:hover:bg-yellow-500/20"
+                    >
+                      After {days} day{days > 1 ? "s" : ""}
+                    </button>
+                  ))}
+                </div>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-all"
                   value={followUpForm.date}
                   onChange={(e) => setFollowUpForm({ ...followUpForm, date: e.target.value })}
@@ -462,12 +487,28 @@ export default function ApplicationDetail() {
                     <option key={t}>{t}</option>
                   ))}
                 </select>
+                <textarea
+                  rows={2}
+                  placeholder="What did HR ask for? (e.g. CTC, notice period, experience)"
+                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-all"
+                  value={followUpForm.hrRequest}
+                  onChange={(e) => setFollowUpForm({ ...followUpForm, hrRequest: e.target.value })}
+                />
                 <input
                   placeholder="Note (optional)"
                   className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-all"
                   value={followUpForm.note}
                   onChange={(e) => setFollowUpForm({ ...followUpForm, note: e.target.value })}
                 />
+                <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={followUpForm.autoSend}
+                    onChange={(e) => setFollowUpForm({ ...followUpForm, autoSend: e.target.checked })}
+                    className="mt-0.5 rounded"
+                  />
+                  <span>Auto-send this email at the scheduled time (otherwise it is highlighted for manual sending)</span>
+                </label>
                 <button className="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-2.5 rounded-xl text-sm font-medium transition-all">
                   Schedule Follow-up
                 </button>

@@ -74,10 +74,12 @@ that every AI email and follow-up follows — for example *"always sign off as
 Thanks, Manish"* or *"never mention salary expectations"*. Stored in your profile,
 not hardcoded in the backend.
 
-### Auto follow-ups (3-day scheduler)
-Applications that received an email ~3 days ago and are still awaiting a reply get
-a polite AI follow-up sent automatically, once. The scheduled Vercel Cron drives it,
-and it can also be triggered manually from the Follow-ups page.
+### Scheduled auto follow-ups
+Every follow-up can carry an HR request (e.g. *CTC, notice period, experience*) and an
+optional auto-send day/time. When auto-send is on, the app answers only the details HR
+asked for and always attaches the resume plus portfolio, LinkedIn and GitHub links.
+Follow-ups without a scheduled auto-send stay pending and are highlighted on the
+Follow-ups page for manual **send all** or one-by-one sending.
 
 ### Follow-ups
 Today / Overdue / Upcoming / All tabs, per-row **Send** checkbox (disabled once a
@@ -369,10 +371,15 @@ Click **Deploy**. Once it finishes, your app is live at
 
 That runs daily at 09:00 UTC and:
 
-1. Finds applications whose `applicationDate` is at least 3 days old
-2. Filters to those still in an active state (`EMAIL_SENT`, `APPLYING`, `SAVED`, `NEW`)
-3. Skips any that already have a `Follow-up` `EmailLog` entry
-4. Generates and sends a polite AI follow-up, then marks the app `FOLLOW_UP_SENT`
+1. Finds follow-ups with `autoSend: true` whose scheduled date/time has passed
+2. Skips any that already have an `EmailLog` for that specific follow-up
+3. Generates the AI email using only the follow-up's HR request details
+4. Attaches the default resume and includes portfolio/LinkedIn/GitHub links
+5. Marks the follow-up completed and the app `FOLLOW_UP_SENT`
+
+The same due auto-sends are also processed when the Follow-ups page is opened, so
+they go out as soon as the user is in the app. Disable auto-send on any follow-up to
+keep it in the manual list instead.
 
 **Vercel cron notes:**
 - Vercel Cron sends an `Authorization: Bearer <CRON_SECRET>` header if a secret is
@@ -526,7 +533,9 @@ header unless noted.
 | PATCH | `/resumes/:id/default` | Set default resume |
 | DELETE | `/resumes/:id` | Delete resume |
 | GET | `/followups` | List follow-ups (includes `emailSent` flag) |
-| POST | `/followups` | Schedule a follow-up |
+| POST | `/followups` | Schedule a follow-up (with `hrRequest` + `autoSend`) |
+| POST | `/followups/process-auto` | Send due auto-send follow-ups for the current user |
+| PATCH | `/followups/:id/auto-send` | Enable/disable auto-send, change date or HR request |
 | POST | `/followups/:id/send` | Generate + send the follow-up email now |
 | PATCH | `/followups/:id/complete` | Mark complete |
 | PATCH | `/followups/:id/cancel` | Cancel |
