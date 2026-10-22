@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobTrackr for LinkedIn",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Save LinkedIn feed job posts to JobTrackr, hide the noise, and optionally auto-send an AI application email.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -11,6 +11,7 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://www.linkedin.com/*",
+    "https://linkedin.com/*",
     "http://localhost:5000/*",
     "https://j-tracker-tool.vercel.app/*",
     "https://*.vercel.app/*"
@@ -20,7 +21,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.linkedin.com/*"],
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://linkedin.com/*"
+      ],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"

@@ -2,8 +2,7 @@
   if (window !== window.top || window.__jtLinkedInLoaded) return;
   window.__jtLinkedInLoaded = true;
 
-  // LinkedIn changes their markup often. Try several known containers; the first
-  // match that actually contains job-post-like text wins.
+  // LinkedIn changes their markup often. Try several known containers.
   const POST_SELECTORS = [
     '[data-urn^="urn:li:activity"]',
     '[data-id^="urn:li:activity"]',
@@ -23,7 +22,6 @@
     'span.break-words',
     'div.update-components-text',
   ];
-  const TEXT_SELECTOR = TEXT_SELECTORS.join(', ');
 
   const rejected = new Set();
 
@@ -57,7 +55,6 @@
   }
 
   function postText(el) {
-    // Try the most specific text container first, then fall back to the whole element.
     let node = null;
     for (const sel of TEXT_SELECTORS) {
       node = el.querySelector(sel);
@@ -153,7 +150,6 @@
     let found = 0;
     document.querySelectorAll(POST_SELECTOR).forEach((el) => {
       if (el.dataset.jtInjected) return;
-      // Skip tiny elements (icons, buttons) — only inject into real posts
       if ((el.innerText || "").trim().length < 60) return;
       if (el.parentElement && el.parentElement.closest(NESTED_SELECTOR)) return;
       el.dataset.jtInjected = "1";
@@ -161,34 +157,26 @@
       inject(el);
       found++;
     });
-    if (found === 0) {
-      // Fallback: LinkedIn may have changed markup. Inject a floating button
-      // the user can click to capture the currently visible post.
-      ensureFloatingButton();
-    }
+    // Always ensure the floating button is present as a reliable fallback
+    ensureFloatingButton();
   }
 
   let floatingBtn = null;
   function ensureFloatingButton() {
-    if (floatingBtn) return;
+    if (floatingBtn && document.body.contains(floatingBtn)) return;
     floatingBtn = document.createElement("button");
     floatingBtn.type = "button";
     floatingBtn.className = "jt-float";
     floatingBtn.textContent = "Save visible post to JobTrackr";
+    floatingBtn.title = "JobTrackr is active. Click to save the post currently in view.";
     document.body.appendChild(floatingBtn);
     floatingBtn.addEventListener("click", async () => {
-      // Grab the largest text block currently in view
-      // Find the post closest to the top of the viewport (most recently scrolled into view)
-      const viewportTop = window.scrollY;
-      const viewportHeight = window.innerHeight;
-      const viewportCenter = viewportHeight / 2;
+      const viewportCenter = window.innerHeight / 2;
       const candidates = Array.from(document.querySelectorAll("div, section, article"))
         .filter((el) => {
           const text = (el.innerText || "").trim();
-          // Skip tiny or huge blocks; skip sidebars/footers/navs
           if (text.length < 120 || text.length > 6000) return false;
           if (el.closest("aside, nav, footer, header, [role='complementary'], [role='navigation']")) return false;
-          // Skip elements that look like the footer/sidebar (contain "Accessibility" etc.)
           if (/accessibility|help center|privacy & terms|ad choices|business services/i.test(text)) return false;
           return true;
         })
@@ -196,19 +184,18 @@
           const rect = el.getBoundingClientRect();
           const elCenter = rect.top + rect.height / 2;
           const distanceFromCenter = Math.abs(elCenter - viewportCenter);
-          return { el, text: (el.innerText || "").trim(), distanceFromCenter, rect };
+          return { el, distanceFromCenter };
         })
         .sort((a, b) => a.distanceFromCenter - b.distanceFromCenter);
       const target = candidates[0]?.el;
 
-      // Highlight the chosen element briefly so the user can see what's being saved
       if (target) {
         target.style.outline = "3px solid #4f46e5";
         target.style.outlineOffset = "4px";
         setTimeout(() => { target.style.outline = ""; target.style.outlineOffset = ""; }, 2000);
       }
       if (!target) {
-        showToast("Could not find a post on this page.", "err");
+        showToast("Could not find a post on this page. Scroll to a job post and try again.", "err");
         return;
       }
       const text = (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
@@ -225,9 +212,13 @@
       if (res && res.ok) {
         if (res.already) showToast("Already saved.", "info");
         else if (res.emailSent) showToast(`Saved "${res.application.jobTitle}" and sent email.`, "info");
-        else showToast(`Saved "${res.application.jobTitle}".`, "info");
+        else showToast(`Saved "${res.application.jobTitle || "job"}".`, "info");
       } else {
-        showToast((res && res.error) || "Save failed.", "err");
+        if (res && res.code === "NOT_LOGGED_IN") {
+          showToast("Open the JobTrackr extension icon and log in first.", "err");
+        } else {
+          showToast((res && res.error) || "Save failed.", "err");
+        }
       }
     });
   }
@@ -241,13 +232,24 @@
     }, 350);
   });
 
-  send({ type: "getState" }).then((res) => {
-    if (res && res.ok && res.state) {
-      (res.state.rejected || []).forEach((u) => rejected.add(u));
+  // Start as soon as possible
+  function start() {
+    send({ type: "getState" }).then((res) => {
+      if (res && res.ok && res.state) {
+        (res.state.rejected || []).forEach((u) => rejected.add(u));
+      }
       scan();
+    });
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+      scan();
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        observer.observe(document.body, { childList: true, subtree: true });
+        scan();
+      });
     }
-  });
+  }
 
-  observer.observe(document.body, { childList: true, subtree: true });
-  scan();
+  start();
 })();

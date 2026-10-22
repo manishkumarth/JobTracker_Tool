@@ -15,7 +15,7 @@
     <section id="login-view" class="hidden">
       <label>
         <span>Server API URL</span>
-        <input id="api-base" type="text" spellcheck="false" placeholder="http://localhost:5000/api" />
+        <input id="api-base" type="text" spellcheck="false" placeholder="https://j-tracker-tool.vercel.app/api" />
       </label>
       <label>
         <span>Email</span>
@@ -37,6 +37,13 @@
 
       <div id="gmail-status" class="status"></div>
 
+      <label>
+        <span>Server API URL</span>
+        <input id="api-base-logged" type="text" spellcheck="false" placeholder="https://j-tracker-tool.vercel.app/api" />
+      </label>
+      <button id="save-api-btn" class="secondary" style="margin-top:6px">Save API URL</button>
+      <p id="api-saved" class="hint hidden" style="color:#16a34a">API URL saved.</p>
+
       <label class="row">
         <span>Auto-send AI email on save</span>
         <input id="auto-send" type="checkbox" />
@@ -52,8 +59,8 @@
     </section>
 
     <footer>
-      Scroll your LinkedIn feed and click <b>Save to JobTrackr</b> on job posts. <b>Hide</b> removes
-      noise from your feed.
+      <b>After install:</b> refresh the LinkedIn tab. Then click the extension icon to log in.
+      Scroll the feed and use <b>Save to JobTrackr</b> on posts (or the floating button).
     </footer>
 
     <script src="popup.js"></script>

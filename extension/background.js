@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://localhost:5000/api";
+const DEFAULT_API_BASE = "https://j-tracker-tool.vercel.app/api";
 const VALID_WORK_MODE = ["Remote", "Hybrid", "On-site"];
 const VALID_EMPLOYMENT = ["Full-time", "Part-time", "Contract", "Internship"];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,7 +33,14 @@ async function getState() {
 }
 
 function cleanBase(base) {
-  const cleaned = (base || "").trim().replace(/\/+$/, "");
+  let cleaned = (base || "").trim();
+  // Fix common typos: "https//..." or "http//..." missing the colon
+  cleaned = cleaned.replace(/^(https?)\/\//i, "$1://");
+  // Ensure we always end up with a usable absolute URL
+  if (cleaned && !/^https?:\/\//i.test(cleaned)) {
+    cleaned = "https://" + cleaned.replace(/^\/+/, "");
+  }
+  cleaned = cleaned.replace(/\/+$/, "");
   return cleaned || DEFAULT_API_BASE;
 }
 

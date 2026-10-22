@@ -6,7 +6,7 @@ async function send(msg) {
   try {
     return await chrome.runtime.sendMessage(msg);
   } catch {
-    return { ok: false, error: "Extension background is not reachable." };
+    return { ok: false, error: "Extension background is not reachable. Try reloading the extension." };
   }
 }
 
@@ -28,7 +28,7 @@ function render(s) {
   $("account-view").classList.toggle("hidden", !loggedIn);
 
   if (!loggedIn) {
-    $("api-base").value = (s && s.apiBase) || "";
+    $("api-base").value = (s && s.apiBase) || "https://j-tracker-tool.vercel.app/api";
     return;
   }
 
@@ -44,13 +44,15 @@ function render(s) {
     gmail.className = "status status-warn";
   }
 
+  $("api-base-logged").value = (s && s.apiBase) || "https://j-tracker-tool.vercel.app/api";
   $("auto-send").checked = !!s.autoSend;
   $("offline-note").classList.toggle("hidden", !s.offline);
+  $("api-saved").classList.add("hidden");
 }
 
 async function init() {
   const res = await send({ type: "refreshUser" });
-  render(res && res.ok ? res.state : { apiBase: "" });
+  render(res && res.ok ? res.state : { apiBase: "https://j-tracker-tool.vercel.app/api" });
 }
 
 $("login-btn").addEventListener("click", async () => {
@@ -77,7 +79,18 @@ $("login-btn").addEventListener("click", async () => {
     render(res.state);
     return;
   }
-  showError((res && res.error) || "Login failed.");
+  showError((res && res.error) || "Login failed. Check API URL and credentials.");
+});
+
+$("save-api-btn").addEventListener("click", async () => {
+  const apiBase = $("api-base-logged").value.trim();
+  if (!apiBase) return;
+  const res = await send({ type: "setSettings", apiBase });
+  if (res && res.ok) {
+    state = res.state;
+    $("api-saved").classList.remove("hidden");
+    setTimeout(() => $("api-saved").classList.add("hidden"), 2500);
+  }
 });
 
 $("auto-send").addEventListener("change", async (e) => {
@@ -88,7 +101,7 @@ $("auto-send").addEventListener("change", async (e) => {
 $("open-app").addEventListener("click", () => {
   const base = (state && state.apiBase) || "";
   const appUrl = base.replace(/\/api\/?$/, "");
-  chrome.tabs.create({ url: appUrl || "http://localhost:5173" });
+  chrome.tabs.create({ url: appUrl || "https://j-tracker-tool.vercel.app" });
 });
 
 $("logout-btn").addEventListener("click", async () => {
