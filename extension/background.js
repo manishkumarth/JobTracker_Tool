@@ -20,6 +20,7 @@ async function getRaw() {
     "jt_rejected",
     "jt_scroll_min_ms",
     "jt_scroll_max_ms",
+    "jt_auto_save_on_scroll",
   ]);
 }
 
@@ -33,6 +34,7 @@ async function getState() {
     rejected: s.jt_rejected || [],
     scrollMinMs: typeof s.jt_scroll_min_ms === "number" ? s.jt_scroll_min_ms : 2500,
     scrollMaxMs: typeof s.jt_scroll_max_ms === "number" ? s.jt_scroll_max_ms : 7000,
+    autoSaveOnScroll: !!s.jt_auto_save_on_scroll,
   };
 }
 
@@ -122,12 +124,13 @@ async function logout() {
   return { ok: true, state: await getState() };
 }
 
-async function setSettings({ apiBase, autoSend, scrollMinMs, scrollMaxMs }) {
+async function setSettings({ apiBase, autoSend, scrollMinMs, scrollMaxMs, autoSaveOnScroll }) {
   const patch = {};
   if (typeof apiBase === "string") patch.jt_api_base = cleanBase(apiBase);
   if (typeof autoSend === "boolean") patch.jt_auto_send = autoSend;
   if (typeof scrollMinMs === "number" && scrollMinMs >= 1000) patch.jt_scroll_min_ms = Math.round(scrollMinMs);
   if (typeof scrollMaxMs === "number" && scrollMaxMs >= 1000) patch.jt_scroll_max_ms = Math.round(scrollMaxMs);
+  if (typeof autoSaveOnScroll === "boolean") patch.jt_auto_save_on_scroll = autoSaveOnScroll;
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
   return { ok: true, state: await getState() };
 }
@@ -183,6 +186,21 @@ async function saveJob({ text, url }) {
   } catch (err) {
     if (err.status === 403) throw err;
     parseFailed = true;
+  }
+
+  // Reject if both email and job title are missing (user requested auto-save filter)
+  const jobTitleFound = !!(parsed.jobTitle || "").trim() || !!deriveTitle(text);
+  const emailFound = !!(parsed.hrEmail || "").trim() && EMAIL_RE.test((parsed.hrEmail || "").trim());
+  if (!jobTitleFound || !emailFound) {
+    return {
+      ok: true,
+      rejected: true,
+      error: !emailFound && !jobTitleFound
+        ? "Rejected: email and job title not found"
+        : !emailFound
+          ? "Rejected: recruiter email not found"
+          : "Rejected: job title not found",
+    };
   }
 
   const payload = {

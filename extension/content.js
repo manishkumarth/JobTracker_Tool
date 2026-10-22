@@ -33,6 +33,9 @@
   let autoScrollTimer = null;
   let scrollMinMs = 2500;
   let scrollMaxMs = 7000;
+  // Auto-save visible posts while scrolling (checkbox)
+  let autoSaveOnScroll = false;
+  const autoSavedUrls = new Set(); // avoid re-queuing same post
 
   let toastEl = null;
   let toastTimer = null;
@@ -136,6 +139,19 @@
             item.button.classList.add("jt-ok");
           }
           showToast(`Already saved: ${res.application?.jobTitle || "post"}`, "info");
+        } else if (res && res.ok && res.rejected) {
+          // Backend rejected: missing email and/or job title
+          queueFailed++;
+          if (item.url) {
+            rejected.add(item.url);
+            send({ type: "rejectJob", url: item.url });
+          }
+          if (item.button) {
+            item.button.disabled = true;
+            item.button.textContent = "Rejected";
+            item.button.classList.add("jt-hide");
+          }
+          showToast(res.error || "Rejected: email or job title not found", "info");
         } else if (res && res.ok) {
           queueDone++;
           const title = res.application?.jobTitle || "Job post";
@@ -226,6 +242,17 @@
     });
   }
 
+  // Quick client-side check: does this post look like it has an email + job-title signal?
+  function looksLikeJobWithEmail(text) {
+    if (!text || text.length < 40) return false;
+    const hasEmail = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(text);
+    // Job-title heuristics: common role words or "hiring" / "looking for" etc.
+    const hasTitleSignal =
+      /\b(hiring|looking for|we(?:'re| are) hiring|job title|position|role|opening|vacancy)\b/i.test(text) ||
+      /\b(engineer|developer|designer|manager|analyst|recruiter|intern|consultant|architect|scientist|specialist)\b/i.test(text);
+    return hasEmail && hasTitleSignal;
+  }
+
   function scan() {
     document.querySelectorAll(POST_SELECTOR).forEach((el) => {
       if (el.dataset.jtInjected) return;
@@ -234,6 +261,23 @@
       el.dataset.jtInjected = "1";
       applyRejection(el);
       inject(el);
+
+      // Auto-save on scroll: only queue posts that appear to have email + job title
+      if (autoSaveOnScroll && !el.classList.contains("jt-hidden")) {
+        const url = postUrl(el);
+        const text = postText(el);
+        if (url && !autoSavedUrls.has(url) && !rejected.has(url) && looksLikeJobWithEmail(text)) {
+          autoSavedUrls.add(url);
+          const saveBtn = el.querySelector(".jt-btn.jt-save");
+          enqueueSave({ text, url, button: saveBtn || null });
+        } else if (url && !autoSavedUrls.has(url) && !looksLikeJobWithEmail(text)) {
+          // Reject posts missing email and/or job-title signals
+          autoSavedUrls.add(url);
+          rejected.add(url);
+          el.classList.add("jt-hidden");
+          send({ type: "rejectJob", url });
+        }
+      }
     });
     ensurePanel();
   }
@@ -248,6 +292,11 @@
       <div class="jt-panel-title">JobTrackr</div>
       <div class="jt-queue-status" id="jt-queue-status">Queue empty</div>
       <button type="button" class="jt-panel-btn jt-save-visible" id="jt-save-visible">Save visible post</button>
+      <label class="jt-checkbox-row">
+        <input type="checkbox" id="jt-auto-save" />
+        <span>Auto-save on scroll</span>
+      </label>
+      <div class="jt-hint">Only saves posts that have both email + job title; others are rejected/hidden</div>
       <div class="jt-scroll-row">
         <button type="button" class="jt-panel-btn jt-scroll-toggle" id="jt-scroll-toggle">▶ Auto-scroll</button>
       </div>
@@ -298,6 +347,25 @@
       if (autoScrollOn) stopAutoScroll();
       else startAutoScroll();
     });
+
+    const autoSaveCb = panelEl.querySelector("#jt-auto-save");
+    if (autoSaveCb) {
+      autoSaveCb.checked = autoSaveOnScroll;
+      autoSaveCb.addEventListener("change", () => {
+        autoSaveOnScroll = !!autoSaveCb.checked;
+        showToast(
+          autoSaveOnScroll
+            ? "Auto-save ON · posts need email + job title or they are rejected"
+            : "Auto-save OFF",
+          "info"
+        );
+        if (autoSaveOnScroll) {
+          // Immediately process currently visible posts
+          scan();
+        }
+        send({ type: "setSettings", autoSaveOnScroll });
+      });
+    }
 
     saveVisibleBtn.addEventListener("click", () => {
       const target = findVisiblePost();
@@ -449,6 +517,7 @@
         (res.state.rejected || []).forEach((u) => rejected.add(u));
         if (typeof res.state.scrollMinMs === "number") scrollMinMs = res.state.scrollMinMs;
         if (typeof res.state.scrollMaxMs === "number") scrollMaxMs = res.state.scrollMaxMs;
+        if (typeof res.state.autoSaveOnScroll === "boolean") autoSaveOnScroll = res.state.autoSaveOnScroll;
       }
       scan();
     });
