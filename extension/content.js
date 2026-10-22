@@ -348,10 +348,35 @@
     return min + Math.floor(Math.random() * (max - min + 1));
   }
 
+  function getScrollRoot() {
+    // LinkedIn feed often scrolls on documentElement / body; sometimes a main container
+    const candidates = [
+      document.scrollingElement,
+      document.documentElement,
+      document.body,
+      document.querySelector("main"),
+      document.querySelector(".scaffold-finite-scroll__content"),
+      document.querySelector("[data-testid='primary-column']"),
+    ].filter(Boolean);
+    // Prefer the element that actually can scroll
+    for (const el of candidates) {
+      if (el.scrollHeight > el.clientHeight + 50) return el;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
   function humanScrollStep() {
-    // Scroll roughly 60–90% of viewport, with slight random offset
     const amount = Math.floor(window.innerHeight * (0.55 + Math.random() * 0.35));
-    window.scrollBy({ top: amount, behavior: "smooth" });
+    const root = getScrollRoot();
+    try {
+      if (root === document.scrollingElement || root === document.documentElement || root === document.body) {
+        window.scrollBy({ top: amount, left: 0, behavior: "smooth" });
+      } else {
+        root.scrollBy({ top: amount, left: 0, behavior: "smooth" });
+      }
+    } catch {
+      window.scrollBy(0, amount);
+    }
   }
 
   function scheduleNextScroll() {

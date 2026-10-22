@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { listApplications, APPLICATION_STATUSES, bulkUpdateStatus, bulkScheduleFollowUp, bulkDeleteApplications, bulkSendFollowUps } from "../api/applications.js";
+
+function defaultFollowUpDate() {
+  const d = new Date();
+  d.setDate(d.getDate() + 3);
+  return d.toISOString().split("T")[0];
+}
+
 import StatusBadge from "../components/StatusBadge.jsx";
 import ApplicationFormModal from "../components/ApplicationFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -18,7 +25,7 @@ export default function Applications() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAction, setBulkAction] = useState(null);
   const [bulkStatus, setBulkStatus] = useState("");
-  const [bulkFollowUpDate, setBulkFollowUpDate] = useState("");
+  const [bulkFollowUpDate, setBulkFollowUpDate] = useState(defaultFollowUpDate);
   const [bulkFollowUpType, setBulkFollowUpType] = useState("General");
   const [bulkFollowUpNote, setBulkFollowUpNote] = useState("");
   const [autoSendFollowUps, setAutoSendFollowUps] = useState(false);
@@ -339,12 +346,11 @@ export default function Applications() {
                   <div className="flex items-center gap-1.5">
                     <input type="date" className="input text-xs w-auto" value={bulkFollowUpDate} onChange={(e) => setBulkFollowUpDate(e.target.value)} min={new Date().toISOString().split("T")[0]} />
                     <select className="input text-xs w-auto" value={bulkFollowUpType} onChange={(e) => setBulkFollowUpType(e.target.value)}>
-                      <option value="Email Follow-up">Email Follow-up</option>
-                      <option value="Call Follow-up">Call Follow-up</option>
-                      <option value="LinkedIn Follow-up">LinkedIn Follow-up</option>
-                      <option value="Recruiter Follow-up">Recruiter Follow-up</option>
-                      <option value="Interview Follow-up">Interview Follow-up</option>
-                      <option value="General">General</option>
+                      <option value="General">Follow-up</option>
+                      <option value="Call">Call</option>
+                      <option value="Email">Email</option>
+                      <option value="LinkedIn">LinkedIn</option>
+                      <option value="Other">Other</option>
                     </select>
                     <input type="text" placeholder="Note..." className="input text-xs w-32" value={bulkFollowUpNote} onChange={(e) => setBulkFollowUpNote(e.target.value)} />
                     <label className="flex items-center gap-1.5 cursor-pointer shrink-0">

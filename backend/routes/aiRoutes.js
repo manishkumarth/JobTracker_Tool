@@ -144,7 +144,7 @@ ${JSON_ONLY}, in exactly this shape:
 // POST /api/ai/generate-followup
 router.post("/generate-followup", async (req, res) => {
   try {
-    const { applicationId, hrRequest, provider, model } = req.body;
+    const { applicationId, provider, model } = req.body;
     if (!applicationId) return res.status(400).json({ message: "applicationId is required" });
 
     const application = await Application.findOne({ _id: applicationId, owner: req.userId });
@@ -165,11 +165,8 @@ Company: ${application.companyName || ""}
 Applied on: ${application.applicationDate ? new Date(application.applicationDate).toDateString() : "unknown date"}
 Recruiter: ${application.hrName || "(unknown)"}
 Original email sent: ${originalEmail?.subject ? `Subject: ${originalEmail.subject}` : "(not on file)"}
-Recruiter's request: ${hrRequest?.trim() || "(no specific request — write a polite status follow-up)"}
 
-Write a brief, professional follow-up email (under 120 words). If the recruiter asked for specific details, answer ONLY those details using the candidate facts above. If they asked for CTC, include Current CTC and Expected CTC; if they asked for notice period, include the notice period. Do NOT dump unrelated profile details, and never mention CTC/salary unless asked.
-
-ALWAYS include the candidate's Portfolio, LinkedIn and GitHub links in the signature when provided, each on its own line as a clean URL with no brackets.
+Write a brief, professional follow-up email (under 100 words) checking in on the application status, referencing the original application politely without being pushy.
 
 GREETING RULE: If a recruiter name is provided, start with "Dear <name>,". If no recruiter name is provided, start with "Dear Hiring Team," or "Dear Hiring Manager,". Never leave the greeting blank or use placeholders.
 ${masterPromptBlock(profile)}
@@ -334,11 +331,8 @@ ${requestText ? `HR / recruiter request text:\n${requestText}\n` : ""}${applicat
 
 STYLE:
 - Open clearly (e.g. "Dear <name>," or "Hello <name>,") — if a recipient name is known use it, otherwise "Dear Hiring Team,"
-- Answer ONLY the details the recruiter actually asked for. If they asked for CTC, include Current CTC and Expected CTC from the candidate facts. If they asked for notice period, include the notice period. If they asked for experience, include experience.
-- Do NOT dump unrelated profile details. If CTC was not requested, do not mention CTC or salary at all.
-${profile?.resumes?.length ? "- Mention briefly that the resume is attached to the email." : ""}
-- ALWAYS include the candidate's Portfolio, LinkedIn and GitHub links in the signature when provided, each on its own line as a clean URL with no brackets.
-- Keep it concise, professional and confident. Use proper paragraphs.
+- Answer each requested detail using the candidate facts above (CTC, notice period, experience, location, etc.)
+- Keep it concise, professional and confident. Use proper paragraphs. No brackets around URLs — write each link as a clean URL on its own line in the signature.
 - If a requested detail is not in the candidate facts, state that you are happy to share it separately rather than guessing.
 ${masterPromptBlock(profile)}
 

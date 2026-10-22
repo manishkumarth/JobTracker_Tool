@@ -27,10 +27,7 @@ function render(s) {
   $("login-view").classList.toggle("hidden", loggedIn);
   $("account-view").classList.toggle("hidden", !loggedIn);
 
-  if (!loggedIn) {
-    $("api-base").value = (s && s.apiBase) || "https://j-tracker-tool.vercel.app/api";
-    return;
-  }
+  if (!loggedIn) return;
 
   $("user-name").textContent = s.user?.name || "Account";
   $("user-email").textContent = s.user?.email || "";
@@ -44,21 +41,18 @@ function render(s) {
     gmail.className = "status status-warn";
   }
 
-  $("api-base-logged").value = (s && s.apiBase) || "https://j-tracker-tool.vercel.app/api";
   $("auto-send").checked = !!s.autoSend;
   $("offline-note").classList.toggle("hidden", !s.offline);
-  $("api-saved").classList.add("hidden");
 }
 
 async function init() {
   const res = await send({ type: "refreshUser" });
-  render(res && res.ok ? res.state : { apiBase: "https://j-tracker-tool.vercel.app/api" });
+  render(res && res.ok ? res.state : {});
 }
 
 $("login-btn").addEventListener("click", async () => {
   const email = $("email").value.trim();
   const password = $("password").value;
-  const apiBase = $("api-base").value.trim();
 
   if (!email || !password) {
     showError("Enter your email and password.");
@@ -70,7 +64,8 @@ $("login-btn").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "Logging in...";
 
-  const res = await send({ type: "login", email, password, apiBase });
+  // API base is hardcoded in background.js
+  const res = await send({ type: "login", email, password });
 
   btn.disabled = false;
   btn.textContent = "Log in";
@@ -79,18 +74,7 @@ $("login-btn").addEventListener("click", async () => {
     render(res.state);
     return;
   }
-  showError((res && res.error) || "Login failed. Check API URL and credentials.");
-});
-
-$("save-api-btn").addEventListener("click", async () => {
-  const apiBase = $("api-base-logged").value.trim();
-  if (!apiBase) return;
-  const res = await send({ type: "setSettings", apiBase });
-  if (res && res.ok) {
-    state = res.state;
-    $("api-saved").classList.remove("hidden");
-    setTimeout(() => $("api-saved").classList.add("hidden"), 2500);
-  }
+  showError((res && res.error) || "Login failed. Check credentials.");
 });
 
 $("auto-send").addEventListener("change", async (e) => {
@@ -99,9 +83,7 @@ $("auto-send").addEventListener("change", async (e) => {
 });
 
 $("open-app").addEventListener("click", () => {
-  const base = (state && state.apiBase) || "";
-  const appUrl = base.replace(/\/api\/?$/, "");
-  chrome.tabs.create({ url: appUrl || "https://j-tracker-tool.vercel.app" });
+  chrome.tabs.create({ url: "https://j-tracker-tool.vercel.app" });
 });
 
 $("logout-btn").addEventListener("click", async () => {

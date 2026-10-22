@@ -99,14 +99,39 @@ router.post("/", async (req, res) => {
       }
     }
 
+    // Default auto follow-up: 3 days from now at 11:00 local server time (user can edit later)
+    let followUpDate = req.body.followUpDate ? new Date(req.body.followUpDate) : null;
+    if (!followUpDate || Number.isNaN(followUpDate.getTime())) {
+      followUpDate = new Date();
+      followUpDate.setDate(followUpDate.getDate() + 3);
+      followUpDate.setHours(11, 0, 0, 0);
+    }
+
     const application = await Application.create({
       ...req.body,
       company: companyId,
       companyName: companyName || req.body.companyName,
       contact: contactId,
       owner: req.userId,
+      followUpDate,
       activity: [{ type: "created", message: "Application created", at: new Date() }],
     });
+
+    // Create a pending Email Follow-up so it appears in the Follow-ups page
+    try {
+      const FollowUp = (await import("../models/FollowUp.js")).default;
+      await FollowUp.create({
+        owner: req.userId,
+        application: application._id,
+        type: "Email Follow-up",
+        date: followUpDate,
+        note: "Auto-scheduled (3 days at 11:00). Edit if needed.",
+        status: "Pending",
+      });
+    } catch (e) {
+      console.error("Auto follow-up schedule failed:", e.message);
+    }
+
     await logUserEvent(req.authUser, "activity", `Created application: ${application.jobTitle}${application.companyName ? ` at ${application.companyName}` : ""}`, { applicationId: application._id }, req);
     res.status(201).json(application);
   } catch (err) {
@@ -145,21 +170,30 @@ router.post("/bulk/status", async (req, res) => {
 // POST /api/applications/bulk/followup  -> bulk follow-up scheduling
 router.post("/bulk/followup", async (req, res) => {
   try {
-    const { ids, date, type, note, hrRequest, autoSend = false } = req.body;
+    const { ids, date, type, note } = req.body;
     if (!ids?.length || !date) return res.status(400).json({ message: "ids and date are required" });
 
     const FollowUp = (await import("../models/FollowUp.js")).default;
     const applications = await Application.find({ _id: { $in: ids }, owner: req.userId });
     if (!applications.length) return res.status(404).json({ message: "No applications found" });
 
+    // Normalize date: if only YYYY-MM-DD, set time to 11:00
+    let due = new Date(date);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(date).trim())) {
+      due = new Date(date + "T11:00:00");
+    }
+    if (Number.isNaN(due.getTime())) {
+      due = new Date();
+      due.setDate(due.getDate() + 3);
+      due.setHours(11, 0, 0, 0);
+    }
+
     const followUps = applications.map((app) => ({
       owner: req.userId,
       application: app._id,
-      type: type || "General",
-      date: new Date(date),
+      type: type || "Email Follow-up",
+      date: due,
       note: note || "",
-      hrRequest: hrRequest || "",
-      autoSend: Boolean(autoSend),
     }));
 
     await FollowUp.insertMany(followUps);
@@ -168,7 +202,7 @@ router.post("/bulk/followup", async (req, res) => {
       updateOne: {
         filter: { _id: app._id },
         update: {
-          $set: { followUpDate: new Date(date) },
+          $set: { followUpDate: due },
           $push: { activity: { type: "followup_scheduled", message: `Follow-up scheduled for ${new Date(date).toLocaleDateString()} (bulk)`, at: new Date() } },
         },
       },

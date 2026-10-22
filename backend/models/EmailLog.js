@@ -15,7 +15,6 @@ const emailLogSchema = new mongoose.Schema(
   {
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     application: { type: mongoose.Schema.Types.ObjectId, ref: "Application", default: null },
-    followUp: { type: mongoose.Schema.Types.ObjectId, ref: "FollowUp", default: null },
     company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", default: null },
     contact: { type: mongoose.Schema.Types.ObjectId, ref: "Contact", default: null },
 

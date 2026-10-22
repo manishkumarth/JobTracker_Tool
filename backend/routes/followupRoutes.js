@@ -10,7 +10,6 @@ import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
 import { sendFollowUpEmail } from "../utils/followUpSender.js";
-import { processDueAutoFollowUps } from "../utils/autoFollowUpRunner.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -51,11 +50,34 @@ router.get("/", async (req, res) => {
       .sort({ createdAt: -1 });
 
     if (logs.length) {
+      const sentAppIds = [];
       const latestByApp = new Map();
       for (const log of logs) {
         if (!log.application) continue;
         const key = String(log.application);
+        if (log.status === "Sent") sentAppIds.push(log.application);
         if (!latestByApp.has(key)) latestByApp.set(key, log);
+      }
+
+      // Emails were sent for these apps: complete any still-pending email
+      // follow-up docs left over from before the sync existed.
+      if (sentAppIds.length) {
+        const pendingDocs = await FollowUp.find({
+          owner: req.userId,
+          type: "Email Follow-up",
+          status: "Pending",
+          application: { $in: sentAppIds },
+        }).select("_id application");
+        if (pendingDocs.length) {
+          await FollowUp.updateMany(
+            { _id: { $in: pendingDocs.map((d) => d._id) } },
+            { status: "Completed" }
+          );
+          await Application.updateMany(
+            { owner: req.userId, _id: { $in: pendingDocs.map((d) => d.application) } },
+            { $set: { followUpDate: null } }
+          );
+        }
       }
 
       // Create docs for apps that have follow-up email logs but no email
@@ -82,7 +104,6 @@ router.get("/", async (req, res) => {
                 type: "Email Follow-up",
                 date: log.sentAt || log.createdAt,
                 note: "Follow-up email sent",
-                emailSentAt: log.sentAt || log.createdAt,
                 status: "Completed",
               }
             : {
@@ -111,10 +132,22 @@ router.get("/", async (req, res) => {
       .populate({ path: "application", select: "jobTitle companyName company" })
       .sort({ date: 1 });
 
+    // Flag whether an email follow-up has already been sent for each application
+    const appIds = followUps
+      .map((f) => (f.application?._id ? f.application._id : f.application))
+      .filter(Boolean);
+    const sentLogs = await EmailLog.find({
+      owner: req.userId,
+      application: { $in: appIds },
+      emailType: "Follow-up",
+      status: "Sent",
+    }).select("application");
+    const sentSet = new Set(sentLogs.map((l) => String(l.application)));
+
     res.json(
       followUps.map((f) => ({
         ...f.toObject(),
-        emailSent: Boolean(f.emailSentAt),
+        emailSent: sentSet.has(String(f.application?._id || f.application)),
       }))
     );
   } catch (err) {
@@ -125,22 +158,19 @@ router.get("/", async (req, res) => {
 // POST /api/followups
 router.post("/", async (req, res) => {
   try {
-    const { application, type, date, note, hrRequest, autoSend = false } = req.body;
+    const { application, type, date, note } = req.body;
     if (!application || !date) return res.status(400).json({ message: "application and date are required" });
 
     const app = await Application.findOne({ _id: application, owner: req.userId });
     if (!app) return res.status(404).json({ message: "Application not found" });
 
-    const followUp = await FollowUp.create({
-      owner: req.userId,
-      application,
-      type,
-      date,
-      note,
-      hrRequest: hrRequest || "",
-      autoSend: Boolean(autoSend),
-    });
-    app.followUpDate = date;
+    let due = new Date(date);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(date).trim())) {
+      due = new Date(String(date).trim() + "T11:00:00");
+    }
+    const followUp = await FollowUp.create({ owner: req.userId, application, type: type || "Email Follow-up", date: due, note });
+    app.followUpDate = due;
+    await app.save();
     await logActivity(app, "followup_scheduled", `Follow-up scheduled for ${new Date(date).toLocaleDateString()}`);
 
     res.status(201).json(followUp);
@@ -154,41 +184,6 @@ router.put("/:id", async (req, res) => {
   const followUp = await FollowUp.findOneAndUpdate({ _id: req.params.id, owner: req.userId }, req.body, { new: true });
   if (!followUp) return res.status(404).json({ message: "Not found" });
   res.json(followUp);
-});
-
-// PATCH /api/followups/:id/auto-send  (enable/disable auto-send, date, HR request)
-router.patch("/:id/auto-send", async (req, res) => {
-  try {
-    const updates = {};
-    if (typeof req.body.autoSend === "boolean") updates.autoSend = req.body.autoSend;
-    if (req.body.date) updates.date = new Date(req.body.date);
-    if (typeof req.body.hrRequest === "string") updates.hrRequest = req.body.hrRequest;
-
-    const followUp = await FollowUp.findOneAndUpdate(
-      { _id: req.params.id, owner: req.userId },
-      updates,
-      { new: true }
-    );
-    if (!followUp) return res.status(404).json({ message: "Not found" });
-    res.json(followUp);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// POST /api/followups/process-auto  (send due auto-send follow-ups for this user)
-router.post("/process-auto", requireFeature("autoFollowUp"), async (req, res) => {
-  try {
-    const user = await User.findById(req.userId).select("gmailConnected");
-    if (!user?.gmailConnected) {
-      return res.status(400).json({ message: "Connect Gmail in Config before sending follow-ups" });
-    }
-
-    const result = await processDueAutoFollowUps({ owner: req.userId });
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
 });
 
 // PATCH /api/followups/:id/complete
@@ -237,14 +232,15 @@ router.post("/:id/send", requireFeature("autoFollowUp"), async (req, res) => {
     const contact = application.contact ? await Contact.findById(application.contact) : null;
     const profile = await CandidateProfile.findOne({ owner: req.userId });
 
-    const result = await sendFollowUpEmail({ user, application, contact, profile, followUp });
+    const result = await sendFollowUpEmail({ user, application, contact, profile });
     if (!result.sent) {
       if (result.reason === "already_sent") {
-        return res.status(409).json({ message: "A follow-up email has already been sent for this follow-up" });
+        return res.status(409).json({ message: "A follow-up email has already been sent for this application" });
       }
       return res.status(400).json({ message: "Could not send follow-up: " + (result.reason || "unknown error") });
     }
 
+    await FollowUp.findByIdAndUpdate(followUp._id, { status: "Completed" });
     await logUserEvent(req.authUser, "activity", `Sent follow-up for ${application.jobTitle || "application"}`, { applicationId: application._id, followUpId: followUp._id }, req);
     res.json({ message: "Follow-up sent", subject: result.subject });
   } catch (err) {

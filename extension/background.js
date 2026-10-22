@@ -77,8 +77,9 @@ async function api(path, { method = "GET", body, token, apiBase } = {}) {
   return data;
 }
 
-async function login({ email, password, apiBase }) {
-  const base = cleanBase(apiBase);
+async function login({ email, password }) {
+  // API base is fixed in code — not configurable from the popup
+  const base = DEFAULT_API_BASE;
   const data = await api("/auth/login", { method: "POST", body: { email, password }, apiBase: base });
   await chrome.storage.local.set({ jt_api_base: base, jt_token: data.token, jt_user: data.user });
   return { ok: true, state: await getState() };

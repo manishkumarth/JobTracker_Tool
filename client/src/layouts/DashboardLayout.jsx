@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Outlet, useLocation, NavLink, useNavigate } from "react-router-dom";
-import toast from "react-hot-toast";
 import Sidebar from "../components/Sidebar.jsx";
 import DisabledBanner from "../components/DisabledBanner.jsx";
 import FeatureDisabledPopup from "../components/FeatureDisabledPopup.jsx";
@@ -8,7 +7,6 @@ import GmailSetupPopup from "../components/GmailSetupPopup.jsx";
 import ExtensionInstallPopup from "../components/ExtensionInstallPopup.jsx";
 import HowItWorks from "../components/HowItWorks.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { processAutoFollowUps } from "../api/followups.js";
 import { isAdminUser } from "../constants.js";
 
 const pageNames = {
@@ -33,26 +31,6 @@ export default function DashboardLayout() {
   const [showExtHelp, setShowExtHelp] = useState(false);
   const basePath = "/" + location.pathname.split("/")[1];
   const pageName = pageNames[basePath] || "Dashboard";
-
-  useEffect(() => {
-    let active = true;
-    const run = async () => {
-      try {
-        const result = await processAutoFollowUps();
-        if (active && result?.sent > 0) {
-          toast.success(`${result.sent} auto-send follow-up${result.sent > 1 ? "s" : ""} sent`);
-        }
-      } catch {
-        /* Gmail not connected, feature disabled or nothing due */
-      }
-    };
-    run();
-    const timer = setInterval(run, 5 * 60 * 1000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   return (
     <div className="min-h-screen lg:flex bg-primary">
