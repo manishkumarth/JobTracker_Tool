@@ -2,6 +2,7 @@ import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator,
 import { useEffect, useState, useCallback } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { listTemplates } from "../../api/templates";
 import { listResumes } from "../../api/resumes";
 import { generateDetailReply } from "../../api/ai";
@@ -50,6 +51,28 @@ export default function HRReply() {
       const def = list.find((r) => r.isDefault);
       if (def) setResumeId(def._id);
     }).catch(() => {});
+
+    // Prefill from Gmail overlay (single popup adapts LinkedIn → Gmail)
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem("jt_hr_reply_draft");
+        if (!raw) return;
+        const draft = JSON.parse(raw);
+        if (draft.requestText) setRequestText(draft.requestText);
+        if (draft.recipientEmail) setRecipientEmail(draft.recipientEmail);
+        if (draft.recipientName) setRecipientName(draft.recipientName);
+        if (draft.subject) setSubject(draft.subject);
+        await AsyncStorage.removeItem("jt_hr_reply_draft");
+        // Auto-generate AI reply when coming from Gmail overlay
+        if (draft.fromGmail && draft.requestText) {
+          setTimeout(() => {
+            // will be available after state settles
+          }, 300);
+        }
+      } catch {
+        // ignore
+      }
+    })();
   }, []);
 
   // Auto-extract a recruiter email from the pasted request

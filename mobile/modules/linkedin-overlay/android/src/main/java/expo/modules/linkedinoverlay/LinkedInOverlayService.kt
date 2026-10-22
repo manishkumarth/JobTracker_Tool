@@ -54,13 +54,13 @@ class LinkedInOverlayService : Service() {
       nm.createNotificationChannel(channel)
       notification = Notification.Builder(this, channelId)
         .setContentTitle("JobTrackr is ready")
-        .setContentText("Open LinkedIn to capture posts")
+        .setContentText("Open LinkedIn or Gmail — button adapts")
         .setSmallIcon(android.R.drawable.ic_menu_save)
         .build()
     } else {
       notification = Notification.Builder(this)
         .setContentTitle("JobTrackr is ready")
-        .setContentText("Open LinkedIn to capture posts")
+        .setContentText("Open LinkedIn or Gmail — button adapts")
         .setSmallIcon(android.R.drawable.ic_menu_save)
         .build()
     }
@@ -144,19 +144,49 @@ class LinkedInOverlayService : Service() {
     }
 
     button.setOnClickListener {
-      val text = PostStore.latestText
-      if (text.isBlank()) {
-        Toast.makeText(this, "No post detected yet - scroll to a job post first", Toast.LENGTH_SHORT).show()
-      } else {
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-          button.text = "Saving..."
-          val bg = button.background as? GradientDrawable
-          try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+      val mode = PostStore.mode
+      if (mode == "gmail") {
+        val body = PostStore.gmailBody.ifBlank { PostStore.latestText }
+        if (body.isBlank()) {
+          Toast.makeText(this, "No email detected yet - open an email in Gmail first", Toast.LENGTH_SHORT).show()
+        } else {
+          android.os.Handler(android.os.Looper.getMainLooper()).post {
+            button.text = "Drafting HR reply..."
+            val bg = button.background as? GradientDrawable
+            try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+          }
+          LinkedInOverlayModule.moduleInstance?.sendEvent(
+            "postScraped",
+            mapOf(
+              "mode" to "gmail",
+              "text" to body,
+              "to" to PostStore.gmailTo,
+              "from" to PostStore.gmailFrom,
+              "subject" to PostStore.gmailSubject,
+              "body" to body,
+              "url" to ""
+            )
+          )
         }
-        LinkedInOverlayModule.moduleInstance?.sendEvent(
-          "postScraped",
-          mapOf("text" to text, "url" to PostStore.latestUrl)
-        )
+      } else {
+        val text = PostStore.latestText
+        if (text.isBlank()) {
+          Toast.makeText(this, "No post detected yet - scroll to a job post first", Toast.LENGTH_SHORT).show()
+        } else {
+          android.os.Handler(android.os.Looper.getMainLooper()).post {
+            button.text = "Saving..."
+            val bg = button.background as? GradientDrawable
+            try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+          }
+          LinkedInOverlayModule.moduleInstance?.sendEvent(
+            "postScraped",
+            mapOf(
+              "mode" to "linkedin",
+              "text" to text,
+              "url" to PostStore.latestUrl
+            )
+          )
+        }
       }
     }
 
@@ -180,6 +210,21 @@ class LinkedInOverlayService : Service() {
       }
     }
     overlayView = null
+  }
+
+  fun updateModeUI(mode: String) {
+    android.os.Handler(android.os.Looper.getMainLooper()).post {
+      val v = overlayView as? TextView ?: return@post
+      if (mode == "gmail") {
+        v.text = "HR Reply (Gmail)"
+        val bg = v.background as? GradientDrawable
+        try { bg?.setColor(android.graphics.Color.parseColor("#EA4335")) } catch (_: Exception) {}
+      } else {
+        v.text = "Save to JobTrackr"
+        val bg = v.background as? GradientDrawable
+        try { bg?.setColor(android.graphics.Color.parseColor("#2563EB")) } catch (_: Exception) {}
+      }
+    }
   }
 
   companion object {

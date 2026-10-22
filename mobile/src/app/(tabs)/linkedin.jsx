@@ -2,7 +2,7 @@ import { View, Text, ScrollView, TouchableOpacity, Switch, Alert, Platform } fro
 import { useEffect, useState, useRef, useCallback } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, router } from "expo-router";
 import { saveLinkedInPost } from "../../utils/savePipeline";
 
 // The local native module is only available in a dev/EAS build (not Expo Go)
@@ -42,7 +42,31 @@ export default function LinkedInSetup() {
     })();
 
     if (LinkedInOverlay?.addPostScrapedListener) {
-      const sub1 = LinkedInOverlay.addPostScrapedListener(async ({ text, url }) => {
+      const sub1 = LinkedInOverlay.addPostScrapedListener(async (payload) => {
+        const { text, url, mode, to, from, subject, body } = payload || {};
+        if (mode === "gmail") {
+          // Single overlay adapts: open HR Reply with the open Gmail message
+          setStatus("Opening HR Reply for Gmail...");
+          try {
+            const draftPayload = {
+              requestText: body || text || "",
+              recipientEmail: to || from || "",
+              recipientName: "",
+              subject: subject || "",
+              fromGmail: true,
+            };
+            await AsyncStorage.setItem("jt_hr_reply_draft", JSON.stringify(draftPayload));
+            LinkedInOverlay.setOverlayStatus?.("HR Reply", "#EA4335");
+            router.push("/hr-reply");
+            setStatus("HR Reply opened with current Gmail");
+          } catch (e) {
+            setStatus("Error opening HR Reply: " + (e?.message || "unknown"));
+            LinkedInOverlay.setOverlayStatus?.("Failed", "#dc2626");
+          }
+          setTimeout(() => LinkedInOverlay.setOverlayStatus?.("HR Reply (Gmail)", "#EA4335"), 2500);
+          return;
+        }
+        // LinkedIn mode
         setStatus("Saving captured post...");
         try {
           LinkedInOverlay.setOverlayStatus?.("Saving...", "#f59e0b");
@@ -155,9 +179,9 @@ export default function LinkedInSetup() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
-        <Text style={{ fontSize: 18, fontWeight: "700" }}>LinkedIn Capture</Text>
+        <Text style={{ fontSize: 18, fontWeight: "700" }}>Capture Overlay (LinkedIn + Gmail)</Text>
         <Text style={{ color: "#6b7280" }}>
-          Shows a floating &quot;Save to JobTrackr&quot; button on top of the LinkedIn Android app — like the Chrome extension. Tap it to capture the visible job post and save it to your tracker.
+          Single floating button that adapts to the app you open: on LinkedIn it saves job posts; on Gmail it opens HR Reply with the current email (to, subject, body) so you can draft and send a reply.
         </Text>
 
         {!LinkedInOverlay ? (
