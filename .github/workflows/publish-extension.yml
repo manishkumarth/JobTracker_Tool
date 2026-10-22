@@ -46,17 +46,22 @@ jobs:
 
       - name: Upload to Chrome Web Store
         env:
-          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
-          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
-          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
-          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+        shell: bash
         run: |
+          test -n "$EXTENSION_ID" || { echo "Missing CHROME_EXTENSION_ID secret"; exit 1; }
+          test -n "$CLIENT_ID" || { echo "Missing CHROME_CLIENT_ID secret"; exit 1; }
+          test -n "$CLIENT_SECRET" || { echo "Missing CHROME_CLIENT_SECRET secret"; exit 1; }
+          test -n "$REFRESH_TOKEN" || { echo "Missing CHROME_REFRESH_TOKEN secret"; exit 1; }
+          test -n "$PUBLISHER_ID" || { echo "Missing CHROME_PUBLISHER_ID secret"; exit 1; }
+
           chrome-webstore-upload upload \
             --source jobtrackr-extension.zip \
-            --extension-id "$CHROME_EXTENSION_ID" \
-            --client-id "$CHROME_CLIENT_ID" \
-            --client-secret "$CHROME_CLIENT_SECRET" \
-            --refresh-token "$CHROME_REFRESH_TOKEN"
+            --extension-id "$EXTENSION_ID"
 
       - name: Summary
         run: |
