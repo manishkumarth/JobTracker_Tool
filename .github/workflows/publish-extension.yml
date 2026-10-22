@@ -26,6 +26,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install ZIP utility
+        run: sudo apt-get update && sudo apt-get install -y zip unzip
+
       - name: Install Chrome Web Store CLI
         run: npm install -g chrome-webstore-upload-cli
 
@@ -34,25 +37,14 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('fs');
+          const path = 'extension/manifest.json';
+          const m = JSON.parse(fs.readFileSync(path, 'utf8'));
 
-          const manifestPath = 'extension/manifest.json';
-          const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-
-          console.log('Name:', m.name);
+          console.log('Extension:', m.name);
           console.log('Version:', m.version);
 
           if (m.manifest_version !== 3) {
             throw new Error('Expected Manifest V3');
-          }
-
-          for (const p of [
-            'background.service_worker',
-            'action.default_popup'
-          ]) {
-            const value = p.split('.').reduce((o, k) => o?.[k], m);
-            if (!value) {
-              throw new Error('Missing manifest field: ' + p);
-            }
           }
 
           const files = [
@@ -65,19 +57,37 @@ jobs:
             'icons/icon-128.png'
           ];
 
-          for (const f of files) {
-            if (!fs.existsSync('extension/' + f)) {
-              throw new Error('Missing extension file: ' + f);
+          for (const file of files) {
+            if (!fs.existsSync('extension/' + file)) {
+              throw new Error('Missing extension file: ' + file);
             }
           }
 
-          console.log('Manifest and referenced files look valid.');
+          if (m.background?.service_worker &&
+              !fs.existsSync('extension/' + m.background.service_worker)) {
+            throw new Error('Background service worker file is missing');
+          }
+
+          if (m.action?.default_popup &&
+              !fs.existsSync('extension/' + m.action.default_popup)) {
+            throw new Error('Popup HTML file is missing');
+          }
+
+          for (const [size, file] of Object.entries(m.icons || {})) {
+            if (!fs.existsSync('extension/' + file)) {
+              throw new Error(`Missing ${size}px icon: ${file}`);
+            }
+          }
+
+          console.log('Manifest validation passed.');
           NODE
 
       - name: Build extension ZIP
         shell: bash
         run: |
+          rm -f jobtrackr-extension.zip
           cd extension
+
           zip -r ../jobtrackr-extension.zip . \
             -x "*.DS_Store" \
             -x "icons/generate-icons.mjs"
@@ -85,18 +95,28 @@ jobs:
       - name: Validate ZIP
         shell: bash
         run: |
+          set -euo pipefail
+
+          echo "Checking ZIP integrity..."
           unzip -t jobtrackr-extension.zip
 
-          echo "ZIP root files:"
-          unzip -Z1 jobtrackr-extension.zip | head -40
+          echo "Checking manifest location..."
+          unzip -Z1 jobtrackr-extension.zip | grep -qx "manifest.json"
 
           echo "Packaged manifest:"
-          unzip -p jobtrackr-extension.zip manifest.json
+          unzip -p jobtrackr-extension.zip manifest.json | node -e "
+            let s = '';
+            process.stdin.on('data', d => s += d);
+            process.stdin.on('end', () => {
+              const m = JSON.parse(s);
+              console.log('Name:', m.name);
+              console.log('Version:', m.version);
+              console.log('Manifest version:', m.manifest_version);
+            });
+          "
 
-          if ! unzip -Z1 jobtrackr-extension.zip | grep -qx "manifest.json"; then
-            echo "ERROR: manifest.json must be at the ZIP root."
-            exit 1
-          fi
+          echo "ZIP file listing:"
+          unzip -Z1 jobtrackr-extension.zip | head -60
 
       - name: Upload to Chrome Web Store
         env:
@@ -107,6 +127,8 @@ jobs:
           PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
         shell: bash
         run: |
+          set -euo pipefail
+
           test -n "$EXTENSION_ID" || {
             echo "Missing CHROME_EXTENSION_ID secret"
             exit 1
@@ -132,13 +154,15 @@ jobs:
             exit 1
           }
 
+          echo "Uploading extension package..."
+
           chrome-webstore-upload upload \
             --source jobtrackr-extension.zip \
             --extension-id "$EXTENSION_ID" \
             --publisher-id "$PUBLISHER_ID"
 
-      - name: Summary
+      - name: Workflow summary
         if: success()
         run: |
-          echo "Chrome Web Store upload completed successfully."
-          echo "Check the Developer Dashboard for processing and publishing status."
+          echo "Extension package upload completed."
+          echo "Check Chrome Web Store Developer Dashboard for processing and publishing status."
