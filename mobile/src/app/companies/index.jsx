@@ -10,10 +10,12 @@ export default function Companies() {
       subtitleField="industry"
       onDeleteFn={deleteCompany}
       createFn={createCompany}
+      detailHref="/companies"
       createFields={[
         { key: "name", label: "Company Name" },
         { key: "industry", label: "Industry" },
         { key: "website", label: "Website" },
+        { key: "location", label: "Location" },
       ]}
     />
   );

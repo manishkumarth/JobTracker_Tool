@@ -6,19 +6,23 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  TextInput,
+  ScrollView,
 } from "react-native";
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { listApplications, deleteApplication } from "../../../api/applications";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../../context/ThemeContext";
 import { router, useFocusEffect } from "expo-router";
-import { STATUS_COLORS } from "../../../constants";
+import { STATUS_COLORS, APPLICATION_STATUSES } from "../../../constants";
 
 export default function Applications() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
   const { colors } = useTheme();
 
   const load = async (isRefresh = false) => {
@@ -79,7 +83,20 @@ export default function Applications() {
     );
   }
 
-  const items = data?.applications || data || [];
+  const allItems = data?.applications || (Array.isArray(data) ? data : []) || [];
+  const items = useMemo(() => {
+    let list = allItems;
+    if (statusFilter) list = list.filter((a) => a.status === statusFilter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (a) =>
+          (a.jobTitle || "").toLowerCase().includes(q) ||
+          (a.companyName || a.company?.name || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [allItems, statusFilter, search]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -95,6 +112,63 @@ export default function Applications() {
         <TouchableOpacity onPress={() => router.push("/applications/new")}>
           <Text style={{ color: colors.primary, fontWeight: "600" }}>+ Add</Text>
         </TouchableOpacity>
+      </View>
+      <View style={{ paddingHorizontal: 16, gap: 8, marginBottom: 4 }}>
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search title or company"
+          placeholderTextColor={colors.textMuted}
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 8,
+            padding: 10,
+            color: colors.text,
+            backgroundColor: colors.card,
+          }}
+        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          <TouchableOpacity
+            onPress={() => setStatusFilter("")}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: !statusFilter ? colors.primary : colors.border,
+              backgroundColor: !statusFilter ? colors.primary + "18" : colors.card,
+            }}
+          >
+            <Text style={{ color: !statusFilter ? colors.primary : colors.text, fontSize: 12, fontWeight: "600" }}>
+              All
+            </Text>
+          </TouchableOpacity>
+          {APPLICATION_STATUSES.slice(0, 12).map((s) => (
+            <TouchableOpacity
+              key={s}
+              onPress={() => setStatusFilter(s)}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: statusFilter === s ? colors.primary : colors.border,
+                backgroundColor: statusFilter === s ? colors.primary + "18" : colors.card,
+              }}
+            >
+              <Text
+                style={{
+                  color: statusFilter === s ? colors.primary : colors.text,
+                  fontSize: 12,
+                  fontWeight: "600",
+                }}
+              >
+                {s.replaceAll("_", " ")}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
       <FlatList
         data={items}

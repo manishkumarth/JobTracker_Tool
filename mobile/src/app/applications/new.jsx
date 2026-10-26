@@ -202,7 +202,7 @@ export default function NewApplication() {
 
       setStep("Sending email...");
       await sendMail({
-        to: form.hrEmail.trim(),
+        recipientEmail: form.hrEmail.trim(),
         recipientName: form.hrName.trim(),
         subject: emailData.subject,
         message: emailData.body,

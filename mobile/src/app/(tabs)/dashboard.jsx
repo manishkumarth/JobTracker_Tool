@@ -1,7 +1,7 @@
-import { View, Text, ScrollView, TouchableOpacity } from "react-native";
-import { useEffect, useState } from "react";
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl } from "react-native";
+import { useState, useCallback } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { getDashboardStats } from "../../api/dashboard";
@@ -11,27 +11,35 @@ export default function Dashboard() {
   const { colors } = useTheme();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const d = await getDashboardStats();
-        setData({
-          totalApplications: d.stats?.totalApplications ?? 0,
-          pendingCount: d.stats?.emailsPending ?? 0,
-          interviewCount: d.stats?.interviewsScheduled ?? 0,
-          offerCount: d.stats?.offers ?? 0,
-          recentApplications: d.recentApplications ?? [],
-          upcomingInterviews: d.upcomingInterviews ?? [],
-          upcomingFollowUps: [...(d.followUpsDueToday ?? []), ...(d.overdueFollowUpsList ?? [])],
-        });
-      } catch {
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const d = await getDashboardStats();
+      setData({
+        totalApplications: d.stats?.totalApplications ?? 0,
+        pendingCount: d.stats?.emailsPending ?? 0,
+        interviewCount: d.stats?.interviewsScheduled ?? 0,
+        offerCount: d.stats?.offers ?? 0,
+        recentApplications: d.recentApplications ?? [],
+        upcomingInterviews: d.upcomingInterviews ?? [],
+        upcomingFollowUps: [...(d.followUpsDueToday ?? []), ...(d.overdueFollowUpsList ?? [])],
+      });
+    } catch {
+      setData(null);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const displayName = user?.name || user?.email?.split("@")[0] || "there";
@@ -60,18 +68,56 @@ export default function Dashboard() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, gap: 16 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} />
+        }
+      >
         <View>
           <Text style={{ fontSize: 20, fontWeight: "700", color: colors.text }}>Welcome back, {displayName}</Text>
           <Text style={{ color: colors.textMuted, marginTop: 2 }}>{today}</Text>
         </View>
 
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {[
+            { label: "New application", href: "/applications/new" },
+            { label: "LinkedIn capture", href: "/(tabs)/linkedin" },
+            { label: "HR Reply", href: "/hr-reply" },
+            { label: "Follow-ups", href: "/followups" },
+            { label: "Emails", href: "/emails" },
+          ].map((a) => (
+            <TouchableOpacity
+              key={a.href}
+              onPress={() => router.push(a.href)}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 20,
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            >
+              <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 12 }}>{a.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {stats.map((s) => (
-            <View key={s.label} style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: s.color, borderRadius: 12, padding: 14 }}>
+            <TouchableOpacity
+              key={s.label}
+              onPress={() => {
+                if (s.label.includes("Interview")) router.push("/interviews");
+                else if (s.label.includes("Pending")) router.push("/emails");
+                else router.push("/(tabs)/applications");
+              }}
+              style={{ flexBasis: "48%", flexGrow: 1, backgroundColor: s.color, borderRadius: 12, padding: 14 }}
+            >
               <Text style={{ fontSize: 26, fontWeight: "700", color: "#fff" }}>{s.value}</Text>
               <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>{s.label}</Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -110,10 +156,10 @@ export default function Dashboard() {
               <Text style={{ color: colors.textMuted, padding: 12, fontSize: 12, textAlign: "center" }}>None scheduled</Text>
             ) : (
               data.upcomingInterviews.slice(0, 5).map((iv) => (
-                <View key={iv._id} style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <Text style={{ fontWeight: "600", color: colors.text, fontSize: 12 }}>{iv.jobTitle}</Text>
-                  <Text style={{ color: colors.textMuted, fontSize: 11 }}>{iv.companyName} · {iv.date ? new Date(iv.date).toLocaleDateString() : ""}</Text>
-                </View>
+                <TouchableOpacity key={iv._id} onPress={() => router.push("/interviews")} style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <Text style={{ fontWeight: "600", color: colors.text, fontSize: 12 }}>{iv.jobTitle || iv.application?.jobTitle || "Interview"}</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 11 }}>{iv.companyName || iv.application?.companyName || ""} · {iv.date ? new Date(iv.date).toLocaleDateString() : ""}</Text>
+                </TouchableOpacity>
               ))
             )}
           </View>

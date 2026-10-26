@@ -144,25 +144,37 @@ class LinkedInOverlayService : Service() {
     }
 
     button.setOnClickListener {
+      // Snapshot store so further scrolling does not race this capture
       val mode = PostStore.mode
       if (mode == "gmail") {
         val body = PostStore.gmailBody.ifBlank { PostStore.latestText }
+        val to = PostStore.gmailTo
+        val from = PostStore.gmailFrom
+        val subject = PostStore.gmailSubject
         if (body.isBlank()) {
           Toast.makeText(this, "No email detected yet - open an email in Gmail first", Toast.LENGTH_SHORT).show()
         } else {
+          // Optimistic busy state; JS queue may override to "Queued (N)"
           android.os.Handler(android.os.Looper.getMainLooper()).post {
-            button.text = "Drafting HR reply..."
-            val bg = button.background as? GradientDrawable
-            try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+            val current = (overlayView as? TextView)?.text?.toString() ?: ""
+            if (current.startsWith("Saving") || current.startsWith("Processing") || current.startsWith("Sending") || current.startsWith("Generating") || current.startsWith("Drafting")) {
+              button.text = "Queued…"
+              val bg = button.background as? GradientDrawable
+              try { bg?.setColor(android.graphics.Color.parseColor("#7c3aed")) } catch (_: Exception) {}
+            } else {
+              button.text = "Processing…"
+              val bg = button.background as? GradientDrawable
+              try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+            }
           }
           LinkedInOverlayModule.moduleInstance?.sendEvent(
             "postScraped",
             mapOf(
               "mode" to "gmail",
               "text" to body,
-              "to" to PostStore.gmailTo,
-              "from" to PostStore.gmailFrom,
-              "subject" to PostStore.gmailSubject,
+              "to" to to,
+              "from" to from,
+              "subject" to subject,
               "body" to body,
               "url" to ""
             )
@@ -170,20 +182,28 @@ class LinkedInOverlayService : Service() {
         }
       } else {
         val text = PostStore.latestText
+        val url = PostStore.latestUrl
         if (text.isBlank()) {
           Toast.makeText(this, "No post detected yet - scroll to a job post first", Toast.LENGTH_SHORT).show()
         } else {
           android.os.Handler(android.os.Looper.getMainLooper()).post {
-            button.text = "Saving..."
-            val bg = button.background as? GradientDrawable
-            try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+            val current = (overlayView as? TextView)?.text?.toString() ?: ""
+            if (current.startsWith("Saving") || current.startsWith("Processing") || current.startsWith("Sending") || current.startsWith("Generating") || current.startsWith("Drafting")) {
+              button.text = "Queued…"
+              val bg = button.background as? GradientDrawable
+              try { bg?.setColor(android.graphics.Color.parseColor("#7c3aed")) } catch (_: Exception) {}
+            } else {
+              button.text = "Saving…"
+              val bg = button.background as? GradientDrawable
+              try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+            }
           }
           LinkedInOverlayModule.moduleInstance?.sendEvent(
             "postScraped",
             mapOf(
               "mode" to "linkedin",
               "text" to text,
-              "url" to PostStore.latestUrl
+              "url" to url
             )
           )
         }

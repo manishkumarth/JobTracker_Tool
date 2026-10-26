@@ -1,23 +1,19 @@
 // Local Expo module: LinkedIn Overlay
-// Exposes native Android functionality:
-// - startCapture(): shows floating "Save to JobTrackr" button + activates accessibility scraping
-// - stopCapture(): hides the floating button
-// - events: "postScraped" (emits { text, url }) when the button is tapped with scraped text ready
+// Only works inside a native Android build (EAS / expo run:android), not Expo Go.
 
 import { requireNativeModule, EventEmitter } from "expo";
 
-const LinkedInOverlayModule = requireNativeModule("LinkedInOverlay");
+const Native = requireNativeModule("LinkedInOverlay");
+const emitter = new EventEmitter(Native);
 
-export const startCapture = () => LinkedInOverlayModule.startCapture();
-export const stopCapture = () => LinkedInOverlayModule.stopCapture();
-export const isCaptureActive = () => LinkedInOverlayModule.isCaptureActive();
-export const hasOverlayPermission = () => LinkedInOverlayModule.hasOverlayPermission();
-export const isAccessibilityEnabled = () => LinkedInOverlayModule.isAccessibilityEnabled();
-export const setOverlayStatus = (text, color) => LinkedInOverlayModule.setOverlayStatus(text, color);
-export const openOverlaySettings = () => LinkedInOverlayModule.openOverlaySettings();
-export const openAccessibilitySettings = () => LinkedInOverlayModule.openAccessibilitySettings();
-
-const emitter = new EventEmitter(LinkedInOverlayModule);
+export const startCapture = () => Native.startCapture();
+export const stopCapture = () => Native.stopCapture();
+export const isCaptureActive = () => Native.isCaptureActive();
+export const hasOverlayPermission = () => Native.hasOverlayPermission();
+export const isAccessibilityEnabled = () => Native.isAccessibilityEnabled();
+export const setOverlayStatus = (text, color) => Native.setOverlayStatus(text, color);
+export const openOverlaySettings = () => Native.openOverlaySettings();
+export const openAccessibilitySettings = () => Native.openAccessibilitySettings();
 
 export const addPostScrapedListener = (listener) =>
   emitter.addListener("postScraped", listener);
@@ -25,4 +21,18 @@ export const addPostScrapedListener = (listener) =>
 export const addStatusListener = (listener) =>
   emitter.addListener("captureStatus", listener);
 
-export default LinkedInOverlayModule;
+/** Unified API object for require("linkedin-overlay") consumers */
+const LinkedInOverlay = {
+  startCapture,
+  stopCapture,
+  isCaptureActive,
+  hasOverlayPermission,
+  isAccessibilityEnabled,
+  setOverlayStatus,
+  openOverlaySettings,
+  openAccessibilitySettings,
+  addPostScrapedListener,
+  addStatusListener,
+};
+
+export default LinkedInOverlay;

@@ -10,10 +10,12 @@ export default function Contacts() {
       subtitleField="email"
       onDeleteFn={deleteContact}
       createFn={createContact}
+      detailHref="/contacts"
       createFields={[
         { key: "name", label: "Name" },
         { key: "email", label: "Email" },
         { key: "phone", label: "Phone" },
+        { key: "designation", label: "Title / Role" },
       ]}
     />
   );

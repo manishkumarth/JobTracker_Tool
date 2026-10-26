@@ -17,8 +17,9 @@ class LinkedInCaptureService : AccessibilityService() {
         AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
       feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
       flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-        AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-      notificationTimeout = 300
+        AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+        AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+      notificationTimeout = 200
     }
     instance = this
   }
@@ -55,55 +56,89 @@ class LinkedInCaptureService : AccessibilityService() {
     instance = null
   }
 
+  /**
+   * Improved Gmail scrape:
+   * - Walk all text + contentDescription nodes
+   * - Detect From/To by label prefixes and nearby emails
+   * - Subject: short line near top, not an email, not a chrome label
+   * - Body: longest substantial block excluding chrome/footer
+   */
   private fun scrapeGmail(root: AccessibilityNodeInfo) {
-    // Collect all visible text nodes with their bounds for heuristics
-    val nodes = ArrayList<Triple<String, Int, Int>>() // text, top, height
-    collectAllTexts(root, nodes)
+    val nodes = ArrayList<NodeInfo>()
+    collectRichTexts(root, nodes)
 
-    // Heuristic: subject often short and near top; body is the longest block;
-    // email addresses appear as "to" / "from"
     var subject = ""
     var body = ""
     var to = ""
     var from = ""
 
-    val emails = nodes.map { it.first }.flatMap { t ->
-      EMAIL_RE.findAll(t).map { it.value }.toList()
-    }.distinct()
+    val emails = nodes
+      .flatMap { n -> EMAIL_RE.findAll(n.text).map { it.value }.toList() }
+      .distinct()
 
-    if (emails.isNotEmpty()) {
-      // Prefer first as "from" (sender) in open conversation
-      from = emails.firstOrNull() ?: ""
-      to = emails.getOrNull(1) ?: emails.firstOrNull() ?: ""
+    for (n in nodes) {
+      val lower = n.text.lowercase().trim()
+      val emailInLine = EMAIL_RE.find(n.text)?.value
+      when {
+        lower.startsWith("from:") || lower == "from" -> {
+          val e = emailInLine ?: findNearbyEmail(nodes, n.top)
+          if (!e.isNullOrBlank()) from = e
+        }
+        lower.startsWith("to:") || lower == "to" || lower.startsWith("to ") -> {
+          val e = emailInLine ?: findNearbyEmail(nodes, n.top)
+          if (!e.isNullOrBlank()) to = e
+        }
+        lower.startsWith("subject:") -> {
+          val s = n.text.substringAfter(":").trim()
+          if (s.length in 2..200) subject = s
+        }
+      }
     }
 
-    // Longest text block as body
+    if (from.isBlank() && emails.isNotEmpty()) from = emails.first()
+    if (to.isBlank() && emails.size > 1) to = emails[1]
+
     body = nodes
-      .map { it.first }
-      .filter { it.length in 40..15000 }
-      .filterNot { FOOTER_PATTERNS.any { p -> it.contains(p, ignoreCase = true) } }
+      .map { it.text }
+      .filter { it.length in 40..20000 }
+      .filterNot { t -> CHROME_PATTERNS.any { p -> t.contains(p, ignoreCase = true) } }
+      .filterNot { t -> t.lowercase().trim() in setOf("inbox", "sent", "drafts", "spam", "trash") }
       .maxByOrNull { it.length } ?: ""
 
-    // Subject: shorter line near the top that isn't an email
-    subject = nodes
-      .filter { it.second < 800 } // upper part of screen
-      .map { it.first.trim() }
-      .filter { it.length in 5..180 }
-      .filterNot { EMAIL_RE.containsMatchIn(it) }
-      .filterNot { FOOTER_PATTERNS.any { p -> it.contains(p, ignoreCase = true) } }
-      .firstOrNull() ?: ""
+    if (subject.isBlank()) {
+      subject = nodes
+        .filter { it.top < 900 }
+        .map { it.text.trim() }
+        .filter { it.length in 5..180 }
+        .filterNot { EMAIL_RE.containsMatchIn(it) }
+        .filterNot { t -> CHROME_PATTERNS.any { p -> t.contains(p, ignoreCase = true) } }
+        .filterNot { t ->
+          val l = t.lowercase()
+          l.startsWith("from") || l.startsWith("to") || l.startsWith("cc") || l.startsWith("date")
+        }
+        .firstOrNull() ?: ""
+    }
 
     if (body.isNotBlank()) PostStore.gmailBody = body
     if (subject.isNotBlank()) PostStore.gmailSubject = subject
     if (to.isNotBlank()) PostStore.gmailTo = to
     if (from.isNotBlank()) PostStore.gmailFrom = from
-    // Also put combined text for fallback
-    PostStore.latestText = listOf(
+
+    val combined = listOf(
       if (from.isNotBlank()) "From: $from" else "",
       if (to.isNotBlank()) "To: $to" else "",
       if (subject.isNotBlank()) "Subject: $subject" else "",
-      body
+      body.ifBlank { PostStore.gmailBody }
     ).filter { it.isNotBlank() }.joinToString("\n\n")
+
+    if (combined.isNotBlank()) PostStore.latestText = combined
+  }
+
+  private fun findNearbyEmail(nodes: List<NodeInfo>, top: Int): String? {
+    return nodes
+      .filter { kotlin.math.abs(it.top - top) < 120 }
+      .flatMap { n -> EMAIL_RE.findAll(n.text).map { it.value }.toList() }
+      .firstOrNull()
   }
 
   private fun findBestPostText(node: AccessibilityNodeInfo): String? {
@@ -111,7 +146,7 @@ class LinkedInCaptureService : AccessibilityService() {
     collectTexts(node, candidates)
     return candidates
       .filter { it.second.length in 120..6000 }
-      .filterNot { c -> FOOTER_PATTERNS.any { p -> c.second.contains(p, ignoreCase = true) } }
+      .filterNot { c -> CHROME_PATTERNS.any { p -> c.second.contains(p, ignoreCase = true) } }
       .maxByOrNull { it.first }
       ?.second
   }
@@ -133,16 +168,22 @@ class LinkedInCaptureService : AccessibilityService() {
     }
   }
 
-  private fun collectAllTexts(node: AccessibilityNodeInfo, out: MutableList<Triple<String, Int, Int>>) {
+  private data class NodeInfo(val text: String, val top: Int, val height: Int)
+
+  private fun collectRichTexts(node: AccessibilityNodeInfo, out: MutableList<NodeInfo>) {
     val t = node.text?.toString()
+    val cd = node.contentDescription?.toString()
+    val rect = Rect()
+    node.getBoundsInScreen(rect)
     if (!t.isNullOrBlank()) {
-      val rect = Rect()
-      node.getBoundsInScreen(rect)
-      out.add(Triple(t, rect.top, rect.height()))
+      out.add(NodeInfo(t, rect.top, rect.height()))
+    }
+    if (!cd.isNullOrBlank() && cd != t) {
+      out.add(NodeInfo(cd, rect.top, rect.height()))
     }
     for (i in 0 until node.childCount) {
       val child = node.getChild(i) ?: continue
-      collectAllTexts(child, out)
+      collectRichTexts(child, out)
     }
   }
 
@@ -152,11 +193,16 @@ class LinkedInCaptureService : AccessibilityService() {
 
     private val EMAIL_RE = Regex("[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}")
 
-    private val FOOTER_PATTERNS = listOf(
+    private val CHROME_PATTERNS = listOf(
       "Accessibility", "Help Center", "Privacy & Terms",
       "Ad Choices", "Business Services", "Get the LinkedIn app",
-      "LinkedIn Corporation", "Google", "Gmail", "Inbox",
-      "Compose", "Search", "Labels", "Settings"
+      "LinkedIn Corporation", "Google Account", "Search in mail",
+      "Compose", "Labels", "Settings", "Archive", "Delete",
+      "Mark as unread", "Move to", "Snooze", "Reply all",
+      "Add-ons", "Print all", "Show original", "Report spam",
+      "Inbox", "Starred", "Important", "Sent", "Drafts",
+      "All mail", "Spam", "Trash", "Categories", "Social",
+      "Promotions", "Updates", "Forums", "Hangouts"
     )
   }
 }

@@ -4,25 +4,48 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, router } from "expo-router";
 import { saveLinkedInPost } from "../../utils/savePipeline";
+import { generateEmail, generateDetailReply } from "../../api/ai";
+import { sendMail } from "../../api/emails";
 
-// The local native module is only available in a dev/EAS build (not Expo Go)
+// Native module only in Android EAS / run:android builds (not Expo Go)
 let LinkedInOverlay = null;
 if (Platform.OS === "android") {
   try {
-    LinkedInOverlay = require("../../../modules/linkedin-overlay");
+    const mod = require("linkedin-overlay");
+    LinkedInOverlay = mod?.default ?? mod;
   } catch {
-    LinkedInOverlay = null;
+    try {
+      const mod = require("../../../modules/linkedin-overlay");
+      LinkedInOverlay = mod?.default ?? mod;
+    } catch {
+      LinkedInOverlay = null;
+    }
   }
 }
 
+const DEFAULT_LINKEDIN_LABEL = "Save to JobTrackr";
+const DEFAULT_GMAIL_LABEL = "HR Reply (Gmail)";
+const COLOR_LINKEDIN = "#2563eb";
+const COLOR_GMAIL = "#EA4335";
+const COLOR_BUSY = "#f59e0b";
+const COLOR_QUEUE = "#7c3aed";
+const COLOR_OK = "#059669";
+const COLOR_ERR = "#dc2626";
+
 export default function LinkedInSetup() {
-  const [autoSend, setAutoSend] = useState(false);
+  const [autoSendApplication, setAutoSendApplication] = useState(false);
+  const [autoSendGmail, setAutoSendGmail] = useState(false);
   const [captureActive, setCaptureActive] = useState(false);
   const [hasOverlay, setHasOverlay] = useState(false);
   const [hasAccessibility, setHasAccessibility] = useState(false);
   const [status, setStatus] = useState("");
   const [lastSaved, setLastSaved] = useState("");
+  const [queueLength, setQueueLength] = useState(0);
+
   const listenersRef = useRef([]);
+  const queueRef = useRef([]); // pending payloads
+  const processingRef = useRef(false);
+  const currentModeRef = useRef("linkedin");
 
   const refreshPermissions = useCallback(async () => {
     if (!LinkedInOverlay) return;
@@ -35,50 +58,208 @@ export default function LinkedInSetup() {
     }
   }, []);
 
+  const restoreDefaultOverlay = useCallback((mode) => {
+    const m = mode || currentModeRef.current || "linkedin";
+    if (m === "gmail") {
+      LinkedInOverlay?.setOverlayStatus?.(DEFAULT_GMAIL_LABEL, COLOR_GMAIL);
+    } else {
+      LinkedInOverlay?.setOverlayStatus?.(DEFAULT_LINKEDIN_LABEL, COLOR_LINKEDIN);
+    }
+  }, []);
+
+  /**
+   * Process one payload. When done, drain next from queue.
+   * While processing, additional taps are queued and overlay shows "Queued (N)".
+   */
+  const processNext = useCallback(async () => {
+    if (processingRef.current) return;
+    const next = queueRef.current.shift();
+    setQueueLength(queueRef.current.length);
+    if (!next) {
+      restoreDefaultOverlay(currentModeRef.current);
+      return;
+    }
+
+    processingRef.current = true;
+    const { text, url, mode, to, from, subject, body } = next || {};
+    currentModeRef.current = mode === "gmail" ? "gmail" : "linkedin";
+
+    try {
+      if (mode === "gmail") {
+        setStatus("Processing Gmail capture...");
+        LinkedInOverlay?.setOverlayStatus?.("Processing...", COLOR_BUSY);
+
+        const requestText = (body || text || "").trim();
+        if (requestText.length < 20) {
+          throw new Error("Gmail body too short — open the full message");
+        }
+        // For an open inbox message, reply goes to the sender (from)
+        const recipientEmail = (from || to || "").trim();
+        const draftPayload = {
+          requestText,
+          recipientEmail,
+          recipientName: "",
+          subject: subject || "",
+          fromGmail: true,
+        };
+        await AsyncStorage.setItem("jt_hr_reply_draft", JSON.stringify(draftPayload));
+
+        const autoGmail = (await AsyncStorage.getItem("autoSendGmail")) === "true";
+        if (autoGmail && requestText) {
+          // Auto-generate + send if possible; otherwise open HR Reply
+          try {
+            LinkedInOverlay?.setOverlayStatus?.("Generating reply...", COLOR_BUSY);
+            let draft;
+            try {
+              draft = await generateDetailReply({
+                requestText,
+                recipientEmail,
+                subject: subject || "",
+              });
+            } catch {
+              draft = await generateEmail({
+                requestText,
+                recipientEmail,
+                emailType: "Recruiter Response",
+              });
+            }
+            if (draft?.subject || draft?.body) {
+              if (recipientEmail) {
+                LinkedInOverlay?.setOverlayStatus?.("Sending...", COLOR_BUSY);
+                await sendMail({
+                  recipientEmail,
+                  recipientName: "",
+                  subject: draft.subject || subject || "Re: your message",
+                  message: draft.body || draft.message || "",
+                  emailType: "Recruiter Response",
+                  isAiGenerated: true,
+                });
+                setStatus("Gmail reply sent to " + recipientEmail);
+                setLastSaved("Gmail → " + recipientEmail);
+                LinkedInOverlay?.setOverlayStatus?.("Sent", COLOR_OK);
+              } else {
+                // No email — open editor with draft
+                if (draft.subject) draftPayload.subject = draft.subject;
+                if (draft.body) draftPayload.requestText = draft.body;
+                await AsyncStorage.setItem("jt_hr_reply_draft", JSON.stringify(draftPayload));
+                LinkedInOverlay?.setOverlayStatus?.("Open HR Reply", COLOR_GMAIL);
+                router.push("/hr-reply");
+                setStatus("Opened HR Reply (no recipient email found)");
+              }
+            } else {
+              LinkedInOverlay?.setOverlayStatus?.("Open HR Reply", COLOR_GMAIL);
+              router.push("/hr-reply");
+              setStatus("Opened HR Reply for Gmail");
+            }
+          } catch (e) {
+            // Fallback: open HR Reply screen
+            LinkedInOverlay?.setOverlayStatus?.("Open HR Reply", COLOR_GMAIL);
+            router.push("/hr-reply");
+            setStatus("Opened HR Reply (auto-send skipped: " + (e?.message || "error") + ")");
+          }
+        } else {
+          // Save only — open HR Reply for manual review
+          LinkedInOverlay?.setOverlayStatus?.("Open HR Reply", COLOR_GMAIL);
+          router.push("/hr-reply");
+          setStatus("Opened HR Reply for Gmail (auto-send off)");
+        }
+      } else {
+        // LinkedIn application save
+        setStatus("Saving captured post...");
+        LinkedInOverlay?.setOverlayStatus?.("Saving...", COLOR_BUSY);
+        const app = await saveLinkedInPost({ text, url });
+        const title = app.jobTitle || "Untitled";
+        setLastSaved(title);
+        if (app._autoSent) {
+          setStatus("Saved & emailed: " + title);
+          LinkedInOverlay?.setOverlayStatus?.("Saved + Sent", COLOR_OK);
+        } else {
+          setStatus("Saved: " + title);
+          LinkedInOverlay?.setOverlayStatus?.("Saved", COLOR_OK);
+        }
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || "unknown";
+      setStatus("Error: " + msg);
+      LinkedInOverlay?.setOverlayStatus?.("Failed", COLOR_ERR);
+    } finally {
+      // Brief success/error state, then either process queue or restore default
+      await new Promise((r) => setTimeout(r, 1200));
+      processingRef.current = false;
+      if (queueRef.current.length > 0) {
+        setQueueLength(queueRef.current.length);
+        LinkedInOverlay?.setOverlayStatus?.(
+          `Queued (${queueRef.current.length})…`,
+          COLOR_QUEUE
+        );
+        // Continue draining without long delay
+        processNext();
+      } else {
+        setQueueLength(0);
+        restoreDefaultOverlay(currentModeRef.current);
+      }
+    }
+  }, [restoreDefaultOverlay]);
+
+  const enqueuePayload = useCallback(
+    (payload) => {
+      const mode = payload?.mode === "gmail" ? "gmail" : "linkedin";
+      const text = (payload?.body || payload?.text || "").trim();
+      // Ignore empty / noise captures so queue does not fill with blanks
+      if (!text || text.length < 20) {
+        setStatus(
+          mode === "gmail"
+            ? "No email content detected — open a message and try again."
+            : "No post content detected — scroll to a job post and try again."
+        );
+        LinkedInOverlay?.setOverlayStatus?.("No content", COLOR_ERR);
+        setTimeout(() => restoreDefaultOverlay(mode), 1500);
+        return;
+      }
+      // Dedupe consecutive identical captures
+      const last = queueRef.current[queueRef.current.length - 1];
+      if (last && (last.body || last.text) === text && last.mode === mode) {
+        setStatus("Already queued (same content)");
+        return;
+      }
+      currentModeRef.current = mode;
+
+      if (processingRef.current) {
+        queueRef.current.push(payload);
+        setQueueLength(queueRef.current.length);
+        LinkedInOverlay?.setOverlayStatus?.(
+          `Queued (${queueRef.current.length})`,
+          COLOR_QUEUE
+        );
+        setStatus(
+          `Busy — added to queue (${queueRef.current.length} waiting). You can keep scrolling.`
+        );
+        return;
+      }
+      queueRef.current.push(payload);
+      setQueueLength(queueRef.current.length);
+      processNext();
+    },
+    [processNext, restoreDefaultOverlay]
+  );
+
   useEffect(() => {
     (async () => {
-      const v = await AsyncStorage.getItem("autoSend");
-      setAutoSend(v === "true");
+      // Migrate legacy "autoSend" → application toggle
+      const legacy = await AsyncStorage.getItem("autoSend");
+      let appFlag = await AsyncStorage.getItem("autoSendApplication");
+      if (appFlag == null && legacy === "true") {
+        await AsyncStorage.setItem("autoSendApplication", "true");
+        appFlag = "true";
+      }
+      setAutoSendApplication(appFlag === "true");
+      const gmailFlag = await AsyncStorage.getItem("autoSendGmail");
+      setAutoSendGmail(gmailFlag === "true");
     })();
 
     if (LinkedInOverlay?.addPostScrapedListener) {
-      const sub1 = LinkedInOverlay.addPostScrapedListener(async (payload) => {
-        const { text, url, mode, to, from, subject, body } = payload || {};
-        if (mode === "gmail") {
-          // Single overlay adapts: open HR Reply with the open Gmail message
-          setStatus("Opening HR Reply for Gmail...");
-          try {
-            const draftPayload = {
-              requestText: body || text || "",
-              recipientEmail: to || from || "",
-              recipientName: "",
-              subject: subject || "",
-              fromGmail: true,
-            };
-            await AsyncStorage.setItem("jt_hr_reply_draft", JSON.stringify(draftPayload));
-            LinkedInOverlay.setOverlayStatus?.("HR Reply", "#EA4335");
-            router.push("/hr-reply");
-            setStatus("HR Reply opened with current Gmail");
-          } catch (e) {
-            setStatus("Error opening HR Reply: " + (e?.message || "unknown"));
-            LinkedInOverlay.setOverlayStatus?.("Failed", "#dc2626");
-          }
-          setTimeout(() => LinkedInOverlay.setOverlayStatus?.("HR Reply (Gmail)", "#EA4335"), 2500);
-          return;
-        }
-        // LinkedIn mode
-        setStatus("Saving captured post...");
-        try {
-          LinkedInOverlay.setOverlayStatus?.("Saving...", "#f59e0b");
-          const app = await saveLinkedInPost({ text, url });
-          setLastSaved(app.jobTitle || "Saved");
-          setStatus("Saved: " + (app.jobTitle || "Untitled"));
-          LinkedInOverlay.setOverlayStatus?.("Saved", "#059669");
-        } catch (e) {
-          setStatus("Error: " + (e?.response?.data?.message || e.message));
-          LinkedInOverlay.setOverlayStatus?.("Failed", "#dc2626");
-        }
-        setTimeout(() => LinkedInOverlay.setOverlayStatus?.("Save to JobTrackr", "#2563eb"), 2500);
+      const sub1 = LinkedInOverlay.addPostScrapedListener((payload) => {
+        enqueuePayload(payload || {});
       });
       const sub2 = LinkedInOverlay.addStatusListener?.(({ status: s, accessibilityEnabled, message }) => {
         if (s === "started") {
@@ -86,12 +267,15 @@ export default function LinkedInSetup() {
           setHasAccessibility(!!accessibilityEnabled);
           setStatus(
             accessibilityEnabled
-              ? "Capture active. Open LinkedIn and tap the floating button."
+              ? "Capture active. Open LinkedIn or Gmail and tap the floating button."
               : "Overlay shown, but Accessibility Service is OFF. Enable it in settings."
           );
         } else if (s === "stopped") {
           setCaptureActive(false);
           setStatus("Capture stopped");
+          queueRef.current = [];
+          setQueueLength(0);
+          processingRef.current = false;
         } else if (s === "needsOverlayPermission") {
           setStatus("Please grant 'Display over other apps' permission");
         } else if (s === "error") {
@@ -105,9 +289,8 @@ export default function LinkedInSetup() {
       listenersRef.current.forEach((l) => l?.remove?.());
       listenersRef.current = [];
     };
-  }, []);
+  }, [enqueuePayload]);
 
-  // Re-check permission state every time the screen is focused
   useFocusEffect(
     useCallback(() => {
       refreshPermissions();
@@ -116,14 +299,17 @@ export default function LinkedInSetup() {
 
   const onStart = async () => {
     if (!LinkedInOverlay) {
-      Alert.alert("Not available", "The LinkedIn capture module requires a development build (not Expo Go). Run 'npx expo run:android' or build with EAS.");
+      Alert.alert(
+        "Not available",
+        "The LinkedIn/Gmail capture module requires a development build (not Expo Go). Run 'npx expo run:android' or build with EAS."
+      );
       return;
     }
     try {
       await LinkedInOverlay.startCapture();
       setTimeout(refreshPermissions, 500);
     } catch (e) {
-      Alert.alert("Error", e.message);
+      Alert.alert("Start failed", e?.message || "Unknown error");
     }
   };
 
@@ -131,64 +317,93 @@ export default function LinkedInSetup() {
     if (!LinkedInOverlay) return;
     try {
       await LinkedInOverlay.stopCapture();
+      queueRef.current = [];
+      setQueueLength(0);
+      processingRef.current = false;
       setCaptureActive(false);
       setStatus("Capture stopped");
     } catch (e) {
-      Alert.alert("Error", e.message);
+      Alert.alert("Stop failed", e?.message || "Unknown error");
     }
   };
 
   const openOverlaySettings = async () => {
+    if (!LinkedInOverlay) {
+      Alert.alert(
+        "Build required",
+        "Overlay permissions only work in a real Android build (EAS preview/development or npx expo run:android). Expo Go cannot load this module."
+      );
+      return;
+    }
     try {
-      if (LinkedInOverlay?.openOverlaySettings) {
-        await LinkedInOverlay.openOverlaySettings();
-      }
+      await LinkedInOverlay.openOverlaySettings();
     } catch (e) {
-      Alert.alert("Error", e.message);
+      Alert.alert("Could not open settings", e?.message || "Open Settings → Apps → JobTrackr → Display over other apps");
     }
   };
 
   const openAccessibilitySettings = async () => {
+    if (!LinkedInOverlay) {
+      Alert.alert(
+        "Build required",
+        "Accessibility service only works in a real Android build (EAS preview/development). Install the APK from expo.dev, not Expo Go."
+      );
+      return;
+    }
     try {
-      if (LinkedInOverlay?.openAccessibilitySettings) {
-        await LinkedInOverlay.openAccessibilitySettings();
-      }
+      await LinkedInOverlay.openAccessibilitySettings();
     } catch (e) {
-      Alert.alert("Error", e.message);
+      Alert.alert("Could not open settings", e?.message || "Open Settings → Accessibility → JobTrackr LinkedIn Capture");
     }
   };
 
-  const toggleAutoSend = async (val) => {
-    setAutoSend(val);
-    await AsyncStorage.setItem("autoSend", val ? "true" : "false");
+  const toggleAutoSendApplication = async (v) => {
+    setAutoSendApplication(v);
+    await AsyncStorage.setItem("autoSendApplication", v ? "true" : "false");
+    // Keep legacy key in sync for older code paths
+    await AsyncStorage.setItem("autoSend", v ? "true" : "false");
   };
 
-  if (Platform.OS !== "android") {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>LinkedIn Capture</Text>
-          <Text style={{ color: "#6b7280" }}>
-            The LinkedIn capture overlay is only available on Android.
-          </Text>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
+  const toggleAutoSendGmail = async (v) => {
+    setAutoSendGmail(v);
+    await AsyncStorage.setItem("autoSendGmail", v ? "true" : "false");
+  };
+
+  const btn = {
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    alignItems: "center",
+  };
+  const btnStop = { ...btn, backgroundColor: "#dc2626" };
+  const btnText = { color: "#fff", fontWeight: "600" };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
-        <Text style={{ fontSize: 18, fontWeight: "700" }}>Capture Overlay (LinkedIn + Gmail)</Text>
-        <Text style={{ color: "#6b7280" }}>
-          Single floating button that adapts to the app you open: on LinkedIn it saves job posts; on Gmail it opens HR Reply with the current email (to, subject, body) so you can draft and send a reply.
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }} edges={["bottom"]}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+        <Text style={{ fontSize: 20, fontWeight: "700" }}>LinkedIn & Gmail Capture</Text>
+        <Text style={{ color: "#6b7280", fontSize: 13 }}>
+          Floating overlay works in both LinkedIn (save jobs) and Gmail (HR reply). Taps while
+          busy are queued so you can keep scrolling.
         </Text>
 
         {!LinkedInOverlay ? (
-          <View style={{ borderWidth: 1, borderColor: "#fca5a5", backgroundColor: "#fef2f2", borderRadius: 8, padding: 12 }}>
-            <Text style={{ color: "#b91c1c", fontWeight: "600" }}>Native module not available</Text>
-            <Text style={{ color: "#b91c1c", fontSize: 12, marginTop: 4 }}>
-              This build does not include the capture module. Install the official JobTrackr APK.
+          <View
+            style={{
+              backgroundColor: "#fef3c7",
+              borderColor: "#f59e0b",
+              borderWidth: 1,
+              borderRadius: 8,
+              padding: 12,
+            }}
+          >
+            <Text style={{ color: "#92400e", fontSize: 13 }}>
+              Native overlay module not loaded.
+
+              You are running Expo Go or a build without the native module. Install the APK from your EAS build on expo.dev (profile: preview or development), or run: npx expo run:android
+
+              Expo Go cannot show the floating button or grant overlay/accessibility.
             </Text>
           </View>
         ) : null}
@@ -196,62 +411,125 @@ export default function LinkedInSetup() {
         <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, gap: 8 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={{ fontWeight: "600" }}>1. Overlay Permission</Text>
-            <Text style={{ fontSize: 12, fontWeight: "600", color: hasOverlay ? "#059669" : "#dc2626" }}>
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "600",
+                color: hasOverlay ? "#059669" : "#dc2626",
+              }}
+            >
               {hasOverlay ? "Granted" : "Not granted"}
             </Text>
           </View>
-          <Text style={{ color: "#6b7280", fontSize: 12 }}>Lets the floating button appear over other apps (LinkedIn). Look for &quot;JobTrackr&quot; in the list and enable &quot;Allow display over other apps&quot;.</Text>
+          <Text style={{ color: "#6b7280", fontSize: 12 }}>
+            Allow &quot;Display over other apps&quot; so the floating Save / HR Reply button can
+            appear on LinkedIn and Gmail.
+          </Text>
           <TouchableOpacity onPress={openOverlaySettings} style={btn}>
-            <Text style={btnText}>{hasOverlay ? "Manage Overlay Permission" : "Grant Overlay Permission"}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={refreshPermissions} style={{ ...btn, backgroundColor: "#6b7280" }}>
-            <Text style={btnText}>I granted it - re-check</Text>
+            <Text style={btnText}>
+              {hasOverlay ? "Manage Overlay Permission" : "Grant Overlay Permission"}
+            </Text>
           </TouchableOpacity>
         </View>
 
         <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, gap: 8 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={{ fontWeight: "600" }}>2. Accessibility Service</Text>
-            <Text style={{ fontSize: 12, fontWeight: "600", color: hasAccessibility ? "#059669" : "#dc2626" }}>
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "600",
+                color: hasAccessibility ? "#059669" : "#dc2626",
+              }}
+            >
               {hasAccessibility ? "Enabled" : "Not enabled"}
             </Text>
           </View>
           <Text style={{ color: "#6b7280", fontSize: 12 }}>
-            Enable &quot;JobTrackr LinkedIn Capture&quot; under Accessibility. It reads the visible post text when you tap the button.
+            Enable &quot;JobTrackr LinkedIn Capture&quot; under Accessibility. It reads the visible
+            post / email text when you tap the button.
           </Text>
           <TouchableOpacity onPress={openAccessibilitySettings} style={btn}>
-            <Text style={btnText}>{hasAccessibility ? "Manage Accessibility Service" : "Open Accessibility Settings"}</Text>
+            <Text style={btnText}>
+              {hasAccessibility ? "Manage Accessibility Service" : "Open Accessibility Settings"}
+            </Text>
           </TouchableOpacity>
         </View>
 
         <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, gap: 8 }}>
           <Text style={{ fontWeight: "600" }}>3. Start / Stop Capture</Text>
           {!hasOverlay ? (
-            <Text style={{ color: "#dc2626", fontSize: 12 }}>Grant Overlay Permission (step 1) before starting.</Text>
+            <Text style={{ color: "#dc2626", fontSize: 12 }}>
+              Grant Overlay Permission (step 1) before starting.
+            </Text>
           ) : null}
           <TouchableOpacity onPress={captureActive ? onStop : onStart} style={captureActive ? btnStop : btn}>
             <Text style={btnText}>{captureActive ? "Stop Capture" : "Start Capture"}</Text>
           </TouchableOpacity>
           {status ? <Text style={{ color: "#374151", fontSize: 12 }}>{status}</Text> : null}
-          {lastSaved ? <Text style={{ color: "#059669", fontSize: 12 }}>Last saved: {lastSaved}</Text> : null}
+          {lastSaved ? (
+            <Text style={{ color: "#059669", fontSize: 12 }}>Last: {lastSaved}</Text>
+          ) : null}
+          {queueLength > 0 ? (
+            <Text style={{ color: "#7c3aed", fontSize: 12, fontWeight: "600" }}>
+              Queue: {queueLength} waiting
+            </Text>
+          ) : null}
         </View>
 
-        <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <Text style={{ fontWeight: "600" }}>Auto-send AI email on save</Text>
-            <Text style={{ color: "#6b7280", fontSize: 12 }}>Sends email automatically if recruiter email is found</Text>
+        {/* Two separate auto-send checkboxes */}
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: "#e5e7eb",
+            borderRadius: 8,
+            padding: 12,
+            gap: 14,
+          }}
+        >
+          <Text style={{ fontWeight: "600", marginBottom: 2 }}>Auto-send options</Text>
+          <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 4 }}>
+            If unchecked, the capture is only saved (or opened for review). If checked, the app
+            also sends the email automatically when possible.
+          </Text>
+
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={{ fontWeight: "600" }}>Application auto-send</Text>
+              <Text style={{ color: "#6b7280", fontSize: 12 }}>
+                After saving a LinkedIn job, generate &amp; send AI application email if recruiter
+                email is found
+              </Text>
+            </View>
+            <Switch value={autoSendApplication} onValueChange={toggleAutoSendApplication} />
           </View>
-          <Switch value={autoSend} onValueChange={toggleAutoSend} />
+
+          <View
+            style={{
+              height: 1,
+              backgroundColor: "#e5e7eb",
+            }}
+          />
+
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={{ fontWeight: "600" }}>Gmail auto-send</Text>
+              <Text style={{ color: "#6b7280", fontSize: 12 }}>
+                When tapping overlay on an open Gmail message, auto-generate &amp; send HR reply.
+                If off, opens HR Reply screen to review first.
+              </Text>
+            </View>
+            <Switch value={autoSendGmail} onValueChange={toggleAutoSendGmail} />
+          </View>
         </View>
 
         <Text style={{ color: "#6b7280", fontSize: 12 }}>
-          After starting capture, open the LinkedIn app. A floating &quot;Save to JobTrackr&quot; pill appears near the top-left. Drag it anywhere. Tap it when a job post is visible on screen, then return to JobTrackr to review the saved job.
+          After starting capture, open LinkedIn or Gmail. A floating pill appears (blue for jobs,
+          red for Gmail). Drag it anywhere. Tap when a job post or email is visible. While one item
+          is saving/sending, further taps go into a queue — you can keep scrolling. When finished,
+          the next queued item runs automatically and the button returns to Save / HR Reply.
         </Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-const btn = { backgroundColor: "#2563eb", padding: 12, borderRadius: 8, alignItems: "center" };
-const btnStop = { backgroundColor: "#dc2626", padding: 12, borderRadius: 8, alignItems: "center" };
-const btnText = { color: "#fff", fontWeight: "600" };

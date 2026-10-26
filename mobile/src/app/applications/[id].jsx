@@ -16,6 +16,7 @@ import {
   addNote,
   changeStatus,
   deleteApplication,
+  computeMatchScore,
   APPLICATION_STATUSES,
 } from "../../api/applications";
 import { generateEmail, generateFollowUpEmail, refineEmail } from "../../api/ai";
@@ -144,6 +145,17 @@ export default function ApplicationDetail() {
     }
   };
 
+  const onMatchScore = async () => {
+    try {
+      const res = await computeMatchScore(id);
+      const score = res.score ?? res.matchScore ?? res.application?.matchScore;
+      Alert.alert("Match score", score != null ? String(score) : JSON.stringify(res));
+      await load();
+    } catch (e) {
+      Alert.alert("Error", e?.response?.data?.message || e.message);
+    }
+  };
+
   const refine = async (instruction) => {
     setEmailBusy(true);
     try {
@@ -178,7 +190,7 @@ export default function ApplicationDetail() {
         return;
       }
       await sendMail({
-        to,
+        recipientEmail: to,
         recipientName: app.hrName || app.contact?.name || "",
         subject: emailSubject,
         message: emailBody,
@@ -301,6 +313,12 @@ export default function ApplicationDetail() {
             style={{ backgroundColor: colors.warning, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
           >
             <Text style={{ color: "#fff", fontWeight: "600" }}>Follow-up</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onMatchScore}
+            style={{ backgroundColor: "#7c3aed", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "600" }}>Match score</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={onDelete}

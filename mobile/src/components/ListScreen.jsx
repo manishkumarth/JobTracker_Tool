@@ -23,6 +23,8 @@ export default function ListScreen({
   createFields,
   createFn,
   renderItem: renderItemProp,
+  onItemPress,
+  detailHref,
 }) {
   const { colors } = useTheme();
   const [items, setItems] = useState([]);
@@ -145,7 +147,12 @@ export default function ListScreen({
         renderItem={
           renderItemProp ||
           (({ item }) => (
-            <View
+            <TouchableOpacity
+              activeOpacity={onItemPress || detailHref ? 0.7 : 1}
+              onPress={() => {
+                if (onItemPress) onItemPress(item);
+                else if (detailHref) router.push(`${detailHref}/${item._id}`);
+              }}
               style={{
                 borderWidth: 1,
                 borderColor: colors.border,
@@ -169,7 +176,7 @@ export default function ListScreen({
                   <Text style={{ color: colors.danger }}>Delete</Text>
                 </TouchableOpacity>
               ) : null}
-            </View>
+            </TouchableOpacity>
           ))
         }
         ListEmptyComponent={

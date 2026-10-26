@@ -3,7 +3,6 @@ import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
-import { isAdminUser } from "../../constants";
 
 const LINKS = [
   { label: "Companies", href: "/companies", icon: "🏢" },
@@ -20,9 +19,7 @@ export default function More() {
   const { user, logout } = useAuth();
   const { isDark, toggleTheme, colors } = useTheme();
   const links = [...LINKS];
-  if (isAdminUser(user)) {
-    links.push({ label: "Admin Access", href: "/admin", icon: "🛡️" });
-  }
+  // Admin panel is web-only — not exposed in the mobile app
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>

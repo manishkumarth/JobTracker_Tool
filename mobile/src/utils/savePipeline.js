@@ -21,18 +21,23 @@ function matchResume(jobTitle, jobDesc, requiredSkills = [], resumes = []) {
   const titleText = (jobTitle || "").toLowerCase();
   const resumeText = (r) => `${r.originalName || ""} ${r.notes || ""}`.toLowerCase();
   const matchedGroups = ROLE_KEYWORDS.filter((kw) => kw.some((k) => titleText.includes(k)));
-  const descGroups = matchedGroups.length ? matchedGroups : ROLE_KEYWORDS.filter((kw) => kw.some((k) => jobText.includes(k)));
+  const descGroups = matchedGroups.length
+    ? matchedGroups
+    : ROLE_KEYWORDS.filter((kw) => kw.some((k) => jobText.includes(k)));
   const allKw = descGroups.flat();
   let selected = allKw.length ? resumes.find((r) => allKw.some((k) => resumeText(r).includes(k))) : null;
   if (!selected) selected = resumes.find((r) => r.isDefault) || resumes[0];
   return selected;
 }
 
+/**
+ * Save a LinkedIn post as an application.
+ * Auto-sends AI email only when `autoSendApplication` is true and an HR email is present.
+ */
 export async function saveLinkedInPost({ text, url }) {
   const token = await AsyncStorage.getItem("token");
   if (!token) throw new Error("Not logged in");
 
-  // 1. Parse
   let parsed = {};
   try {
     parsed = await parseLinkedIn(text);
@@ -41,7 +46,6 @@ export async function saveLinkedInPost({ text, url }) {
     parsed = {};
   }
 
-  // 2. Save application
   const payload = {
     jobTitle: (parsed.jobTitle || "").trim() || "LinkedIn job post",
     companyName: (parsed.companyName || "").trim(),
@@ -49,7 +53,9 @@ export async function saveLinkedInPost({ text, url }) {
     location: parsed.location || "",
     salary: parsed.salary || "",
     experienceRequired: parsed.experienceRequired || "",
-    requiredSkills: Array.isArray(parsed.requiredSkills) ? parsed.requiredSkills.filter(Boolean).slice(0, 30) : [],
+    requiredSkills: Array.isArray(parsed.requiredSkills)
+      ? parsed.requiredSkills.filter(Boolean).slice(0, 30)
+      : [],
     hrName: parsed.hrName || "",
     hrEmail: parsed.hrEmail || "",
     hrPhone: parsed.hrPhone || "",
@@ -60,9 +66,20 @@ export async function saveLinkedInPost({ text, url }) {
 
   const application = await createApplication(payload);
 
-  // 3. Optional auto-send
-  const autoSend = (await AsyncStorage.getItem("autoSend")) === "true";
-  if (autoSend) {
+  // Application auto-send (separate from Gmail auto-send)
+  const autoSendApplication = (await AsyncStorage.getItem("autoSendApplication")) === "true";
+  // Migrate legacy key if present
+  if (!autoSendApplication) {
+    const legacy = (await AsyncStorage.getItem("autoSend")) === "true";
+    if (legacy) {
+      await AsyncStorage.setItem("autoSendApplication", "true");
+    }
+  }
+  const shouldAutoSend =
+    (await AsyncStorage.getItem("autoSendApplication")) === "true" ||
+    (await AsyncStorage.getItem("autoSend")) === "true";
+
+  if (shouldAutoSend) {
     const hrEmail = (parsed.hrEmail || "").trim().toLowerCase();
     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (hrEmail && EMAIL_RE.test(hrEmail)) {
@@ -70,15 +87,23 @@ export async function saveLinkedInPost({ text, url }) {
       try {
         let resumes = [];
         try {
-          const r = await lr();
-          resumes = r.resumes || [];
+          const r = await listResumes();
+          resumes = r.resumes || r || [];
         } catch {
           const prof = await getProfile();
           resumes = prof?.resumes || [];
         }
-        const matched = matchResume(parsed.jobTitle, parsed.jobDescription, parsed.requiredSkills, resumes);
+        if (!Array.isArray(resumes)) resumes = [];
+        const matched = matchResume(
+          parsed.jobTitle,
+          parsed.jobDescription,
+          parsed.requiredSkills,
+          resumes
+        );
         resumeId = matched?._id;
-      } catch {}
+      } catch {
+        /* ignore resume match errors */
+      }
       try {
         const draft = await generateEmail({ applicationId: application._id });
         await sendMail({
@@ -91,8 +116,10 @@ export async function saveLinkedInPost({ text, url }) {
           emailType: "Job Application",
           isAiGenerated: true,
         });
+        application._autoSent = true;
       } catch (e) {
-        console.warn("Auto-send failed", e);
+        console.warn("Auto-send application email failed", e);
+        application._autoSendError = e?.message || "send failed";
       }
     }
   }

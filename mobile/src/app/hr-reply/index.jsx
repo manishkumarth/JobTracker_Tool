@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, Switch } from "react-native";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -63,11 +63,14 @@ export default function HRReply() {
         if (draft.recipientName) setRecipientName(draft.recipientName);
         if (draft.subject) setSubject(draft.subject);
         await AsyncStorage.removeItem("jt_hr_reply_draft");
-        // Auto-generate AI reply when coming from Gmail overlay
+        // Auto-generate AI reply when coming from Gmail overlay (manual review path)
         if (draft.fromGmail && draft.requestText) {
           setTimeout(() => {
-            // will be available after state settles
-          }, 300);
+            try {
+              // handleGenerate is defined later; trigger via storage flag
+              AsyncStorage.setItem("jt_hr_reply_autogen", "1");
+            } catch {}
+          }, 100);
         }
       } catch {
         // ignore
@@ -88,6 +91,24 @@ export default function HRReply() {
       setRecipientName((prev) => (prev ? prev : fromMatch[1].trim()));
     }
   }, [requestText]);
+
+  // If opened from Gmail overlay, auto-run AI draft once fields are ready
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const flag = await AsyncStorage.getItem("jt_hr_reply_autogen");
+      if (!flag || !requestText.trim()) return;
+      await AsyncStorage.removeItem("jt_hr_reply_autogen");
+      if (cancelled) return;
+      // slight delay so state from setRecipientEmail settles
+      setTimeout(() => {
+        if (!cancelled) handleGenerateRef.current?.({ requestText, autoSend: false });
+      }, 400);
+    })();
+    return () => { cancelled = true; };
+  }, [requestText]);
+
+  const handleGenerateRef = useRef(null);
 
   const handleGenerate = useCallback(async (opts = {}) => {
     const tid = opts.templateId ?? templateId;
@@ -132,6 +153,7 @@ export default function HRReply() {
       setGenerating(false);
     }
   }, [templateId, autoSend, recipientName, recipientEmail, resumeId, emailType, requireGmail, requestText]);
+  handleGenerateRef.current = handleGenerate;
 
   // Auto-draft when the toggle is on
   useEffect(() => {

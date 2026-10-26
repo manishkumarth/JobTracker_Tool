@@ -1,5 +1,6 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { emitFeatureDisabled } from "../utils/featureEvents";
 
 export const API_BASE_URL = "https://j-tracker-tool.vercel.app/api"; // change to http://localhost:5000/api if local testing
 
@@ -20,7 +21,11 @@ api.interceptors.response.use(
   (error) => {
     const data = error.response?.data;
     if (error.response?.status === 403 && (data?.featureDisabled || data?.disabled)) {
-      // emit via global event? but RN has no window; we'll handle in UI when needed
+      emitFeatureDisabled({
+        message: data.message,
+        feature: data.featureDisabled,
+        disabled: Boolean(data.disabled),
+      });
     }
     return Promise.reject(error);
   }
