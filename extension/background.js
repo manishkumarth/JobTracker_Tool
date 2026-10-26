@@ -221,7 +221,11 @@ async function saveJob({ text, url }) {
   if (VALID_WORK_MODE.includes(parsed.workMode)) payload.workMode = parsed.workMode;
   if (VALID_EMPLOYMENT.includes(parsed.employmentType)) payload.employmentType = parsed.employmentType;
 
-  const application = await api("/applications", { method: "POST", body: payload, token });
+  const created = await api("/applications", { method: "POST", body: payload, token });
+  const application = created?.application || created;
+  if (!application?._id) {
+    throw new ApiError("Save failed: no application returned", 0, created);
+  }
 
   let emailSent = false;
   let emailSkipped = "";

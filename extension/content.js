@@ -126,11 +126,27 @@
       const item = saveQueue.shift();
       updateQueueUI();
       if (item.button) {
+        item.button.disabled = true;
         item.button.textContent = "Saving...";
+        item.button.classList.remove("jt-queued");
       }
 
       try {
         const res = await send({ type: "saveJob", text: item.text, url: item.url });
+
+        if (!res) {
+          // Background worker asleep / unreachable — re-queue once and stop
+          queueFailed++;
+          if (item.button) {
+            item.button.disabled = false;
+            item.button.textContent = "Retry";
+            item.button.classList.remove("jt-queued");
+          }
+          showToast("Extension background not responding. Open the popup once, then click Retry.", "err");
+          // put remaining + this item back so user can retry
+          saveQueue.unshift(item);
+          break;
+        }
 
         if (res && res.ok && res.already) {
           queueDone++;
@@ -140,7 +156,6 @@
           }
           showToast(`Already saved: ${res.application?.jobTitle || "post"}`, "info");
         } else if (res && res.ok && res.rejected) {
-          // Backend rejected: missing email and/or job title
           queueFailed++;
           if (item.url) {
             rejected.add(item.url);
@@ -151,50 +166,57 @@
             item.button.textContent = "Rejected";
             item.button.classList.add("jt-hide");
           }
-          showToast(res.error || "Rejected: email or job title not found", "info");
+          // Soft-hide only when auto-save rejected
+          if (autoSaveOnScroll && item.url) {
+            const el = document.querySelector(`[data-urn], [data-id]`);
+            // leave visible; toast is enough
+          }
+          showToast(res.error || "Rejected: missing email or title", "err");
         } else if (res && res.ok) {
           queueDone++;
-          const title = res.application?.jobTitle || "Job post";
           if (item.button) {
-            item.button.textContent = res.emailSent ? "Saved + email" : "Saved";
+            item.button.textContent = res.emailSent ? "Saved + sent" : "Saved";
             item.button.classList.add("jt-ok");
           }
+          const title = res.application?.jobTitle || "Job";
           if (res.emailSent) {
-            showToast(`✓ Saved & email sent: ${title}`, "ok");
+            showToast(`Saved + email sent: ${title}`, "ok");
+          } else if (res.emailSkipped) {
+            showToast(`Saved: ${title} (${res.emailSkipped})`, "info");
           } else {
-            showToast(`✓ Saved: ${title}`, "ok");
-            if (res.emailSkipped) showToast(res.emailSkipped, "info");
+            showToast(`Saved: ${title}`, "ok");
           }
         } else {
           queueFailed++;
           if (item.button) {
             item.button.disabled = false;
-            item.button.textContent = "Save to JobTrackr";
-            item.button.classList.remove("jt-queued");
+            item.button.textContent = "Retry";
           }
+          const err = (res && res.error) || "Save failed";
+          showToast(err, "err");
           if (res && res.code === "NOT_LOGGED_IN") {
-            showToast("Open JobTrackr extension and log in first.", "err");
-          } else {
-            showToast((res && res.error) || "Save failed.", "err");
+            showToast("Log in from the JobTrackr extension popup first.", "err");
+            // stop draining until user logs in
+            saveQueue.unshift(item);
+            break;
           }
         }
       } catch (e) {
         queueFailed++;
         if (item.button) {
           item.button.disabled = false;
-          item.button.textContent = "Save to JobTrackr";
-          item.button.classList.remove("jt-queued");
+          item.button.textContent = "Retry";
         }
-        showToast("Save failed. Try again.", "err");
+        showToast(e?.message || "Save failed", "err");
       }
-      updateQueueUI();
-      // Small pause between queue items so we don't hammer the API
-      if (saveQueue.length > 0) await sleep(600 + Math.random() * 400);
+
+      // Small gap so LinkedIn UI stays responsive while queue runs
+      await sleep(400);
     }
 
     queueRunning = false;
     updateQueueUI();
-    if (queueDone > 0) {
+    if (saveQueue.length === 0) {
       showToast(
         `Queue finished · ${queueDone} saved${queueFailed ? `, ${queueFailed} failed` : ""}`,
         queueFailed ? "info" : "ok"
@@ -242,15 +264,18 @@
     });
   }
 
-  // Quick client-side check: does this post look like it has an email + job-title signal?
-  function looksLikeJobWithEmail(text) {
+  // Client-side job signal only (email often hidden on LinkedIn until expand).
+  // Backend still rejects saves missing recruiter email / title.
+  function looksLikeJob(text) {
     if (!text || text.length < 40) return false;
-    const hasEmail = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(text);
-    // Job-title heuristics: common role words or "hiring" / "looking for" etc.
-    const hasTitleSignal =
-      /\b(hiring|looking for|we(?:'re| are) hiring|job title|position|role|opening|vacancy)\b/i.test(text) ||
-      /\b(engineer|developer|designer|manager|analyst|recruiter|intern|consultant|architect|scientist|specialist)\b/i.test(text);
-    return hasEmail && hasTitleSignal;
+    return (
+      /\b(hiring|looking for|we(?:'re| are) hiring|job title|position|role|opening|vacancy|apply|join our team)\b/i.test(text) ||
+      /\b(engineer|developer|designer|manager|analyst|recruiter|intern|consultant|architect|scientist|specialist|sde|swe)\b/i.test(text)
+    );
+  }
+
+  function hasVisibleEmail(text) {
+    return /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(text || "");
   }
 
   function scan() {
@@ -262,21 +287,19 @@
       applyRejection(el);
       inject(el);
 
-      // Auto-save on scroll: only queue posts that appear to have email + job title
+      // Auto-save on scroll: queue posts that look like jobs (do not require visible email).
+      // Backend rejects if parse finds no email/title. Do not hide before attempting save.
       if (autoSaveOnScroll && !el.classList.contains("jt-hidden")) {
         const url = postUrl(el);
         const text = postText(el);
-        if (url && !autoSavedUrls.has(url) && !rejected.has(url) && looksLikeJobWithEmail(text)) {
+        if (!url || autoSavedUrls.has(url) || rejected.has(url)) {
+          // skip
+        } else if (looksLikeJob(text)) {
           autoSavedUrls.add(url);
           const saveBtn = el.querySelector(".jt-btn.jt-save");
           enqueueSave({ text, url, button: saveBtn || null });
-        } else if (url && !autoSavedUrls.has(url) && !looksLikeJobWithEmail(text)) {
-          // Reject posts missing email and/or job-title signals
-          autoSavedUrls.add(url);
-          rejected.add(url);
-          el.classList.add("jt-hidden");
-          send({ type: "rejectJob", url });
         }
+        // Non-job posts: leave visible so user can still Save manually
       }
     });
     ensurePanel();
@@ -296,7 +319,7 @@
         <input type="checkbox" id="jt-auto-save" />
         <span>Auto-save on scroll</span>
       </label>
-      <div class="jt-hint">Only saves posts that have both email + job title; others are rejected/hidden</div>
+      <div class="jt-hint">Queues posts that look like jobs. Backend rejects if no email/title after parse.</div>
       <div class="jt-scroll-row">
         <button type="button" class="jt-panel-btn jt-scroll-toggle" id="jt-scroll-toggle">▶ Auto-scroll</button>
       </div>
@@ -355,7 +378,7 @@
         autoSaveOnScroll = !!autoSaveCb.checked;
         showToast(
           autoSaveOnScroll
-            ? "Auto-save ON · posts need email + job title or they are rejected"
+            ? "Auto-save ON · job-like posts are queued (backend filters email/title)"
             : "Auto-save OFF",
           "info"
         );
@@ -368,7 +391,20 @@
     }
 
     saveVisibleBtn.addEventListener("click", () => {
-      const target = findVisiblePost();
+      // Prefer a JobTrackr-injected post in view, else heuristic findVisiblePost
+      let target = null;
+      let best = Infinity;
+      document.querySelectorAll("[data-jt-injected='1']").forEach((el) => {
+        if (el.classList.contains("jt-hidden")) return;
+        const r = el.getBoundingClientRect();
+        if (r.bottom < 80 || r.top > window.innerHeight - 40) return;
+        const d = Math.abs(r.top + r.height / 2 - window.innerHeight / 2);
+        if (d < best) {
+          best = d;
+          target = el;
+        }
+      });
+      if (!target) target = findVisiblePost();
       if (!target) {
         showToast("No post in view. Scroll a bit and try again.", "err");
         return;
@@ -379,11 +415,9 @@
         target.style.outline = "";
         target.style.outlineOffset = "";
       }, 1500);
-      enqueueSave({
-        text: (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000),
-        url: location.href,
-        button: null,
-      });
+      const url = postUrl(target) || location.href;
+      const text = postText(target) || (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
+      enqueueSave({ text, url, button: target.querySelector(".jt-btn.jt-save") || null });
     });
 
     updateQueueUI();
