@@ -159,28 +159,30 @@
   margin-top: 2px;
 }
 
-/* Toasts */
+/* Toasts — TOP of screen so errors/rejections are always visible */
 .jt-toast {
-  position: fixed;
-  right: 20px;
-  bottom: 200px;
-  z-index: 100000;
-  max-width: 340px;
-  padding: 11px 15px;
+  position: fixed !important;
+  left: 50% !important;
+  top: 16px !important;
+  bottom: auto !important;
+  transform: translateX(-50%) translateY(-8px);
+  z-index: 2147483646 !important;
+  max-width: min(480px, 94vw);
+  padding: 12px 18px;
   border-radius: 10px;
-  font: 600 13px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font: 600 14px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   color: #fff;
   background: #0a66c2;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
   opacity: 0;
-  transform: translateY(8px);
   transition: opacity 0.2s ease, transform 0.2s ease;
   pointer-events: none;
+  text-align: center;
 }
 
 .jt-toast-show {
-  opacity: 1;
-  transform: translateY(0);
+  opacity: 1 !important;
+  transform: translateX(-50%) translateY(0) !important;
 }
 
 .jt-toast-err {

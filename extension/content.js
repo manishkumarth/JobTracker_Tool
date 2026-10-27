@@ -50,6 +50,7 @@
     if (!toastEl) {
       toastEl = document.createElement("div");
       toastEl.className = "jt-toast";
+      toastEl.style.zIndex = "2147483647";
       document.body.appendChild(toastEl);
     }
     toastEl.textContent = text;
@@ -57,7 +58,9 @@
     const cls = kind === "err" ? "jt-toast-err" : kind === "ok" ? "jt-toast-ok" : "jt-toast-info";
     toastEl.classList.add(cls, "jt-toast-show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("jt-toast-show"), 5000);
+    // Errors / rejections stay longer so you can read them at the top
+    const ms = kind === "err" ? 8000 : 5000;
+    toastTimer = setTimeout(() => toastEl.classList.remove("jt-toast-show"), ms);
   }
 
   function updateQueueUI() {
@@ -75,14 +78,39 @@
   }
 
   function postUrl(el) {
-    const urn = el.getAttribute("data-urn") || el.getAttribute("data-id") || "";
-    if (urn.startsWith("urn:li:activity:")) {
-      return `https://www.linkedin.com/feed/update/${urn}/`;
+    if (!el) return "";
+    const urn =
+      el.getAttribute("data-urn") ||
+      el.getAttribute("data-id") ||
+      el.getAttribute("data-activity-urn") ||
+      "";
+    if (urn && urn.includes("activity")) {
+      const clean = urn.startsWith("urn:") ? urn : `urn:li:activity:${urn}`;
+      return `https://www.linkedin.com/feed/update/${clean}/`;
+    }
+    // Nested URN on children
+    const urnNode = el.querySelector("[data-urn*='activity'], [data-id*='activity']");
+    if (urnNode) {
+      const u = urnNode.getAttribute("data-urn") || urnNode.getAttribute("data-id") || "";
+      if (u.includes("activity")) {
+        return `https://www.linkedin.com/feed/update/${u}/`;
+      }
     }
     const link = el.querySelector(
-      'a[href*="/feed/update/urn:li:activity"], a[href*="/feed/update/urn%3Ali%3Aactivity"]'
+      'a[href*="/feed/update/urn:li:activity"], a[href*="/feed/update/urn%3Ali%3Aactivity"], a[href*="activity:"]'
     );
-    return link ? link.href : "";
+    if (link && link.href) return link.href.split("?")[0];
+    return "";
+  }
+
+  // Stable key even when LinkedIn hides the activity URN
+  function postKey(el, text) {
+    const url = postUrl(el);
+    if (url) return url;
+    const sample = (text || postText(el) || "").slice(0, 180).replace(/\s+/g, " ");
+    let h = 0;
+    for (let i = 0; i < sample.length; i++) h = ((h << 5) - h + sample.charCodeAt(i)) | 0;
+    return `fingerprint:${h}:${sample.length}`;
   }
 
   function postText(el) {
@@ -95,183 +123,102 @@
     return (raw || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
   }
 
-  function applyRejection(el) {
-    const url = postUrl(el);
-    if (url && rejected.has(url)) el.classList.add("jt-hidden");
-  }
-
-  // ---------- Save queue (non-blocking) ----------
-  function enqueueSave({ text, url, button }) {
-    if (!text) {
-      showToast("Could not read this post's text.", "err");
-      return;
-    }
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Queued";
-      button.classList.add("jt-queued");
-    }
-    saveQueue.push({ text, url, button });
-    updateQueueUI();
-    showToast(`Added to queue (${saveQueue.length} pending)`, "info");
-    processQueue();
-  }
-
-  async function processQueue() {
-    if (queueRunning) return;
-    queueRunning = true;
-    updateQueueUI();
-
-    while (saveQueue.length > 0) {
-      const item = saveQueue.shift();
-      updateQueueUI();
-      if (item.button) {
-        item.button.disabled = true;
-        item.button.textContent = "Saving...";
-        item.button.classList.remove("jt-queued");
-      }
-
-      try {
-        const res = await send({ type: "saveJob", text: item.text, url: item.url });
-
-        if (!res) {
-          queueFailed++;
-          if (item.button) {
-            item.button.disabled = false;
-            item.button.textContent = "Retry";
-          }
-          showToast("Background not ready — open extension popup, then Retry", "err");
-          saveQueue.unshift(item);
-          break;
-        }
-
-        if (res.ok && res.already) {
-          queueDone++;
-          if (item.button) {
-            item.button.textContent = "Already saved";
-            item.button.classList.add("jt-ok");
-          }
-          showToast(`Already saved: ${res.application?.jobTitle || "post"}`, "info");
-        } else if (res.ok && res.rejected) {
-          queueFailed++;
-          if (item.url) {
-            rejected.add(item.url);
-            send({ type: "rejectJob", url: item.url });
-          }
-          if (item.button) {
-            item.button.disabled = true;
-            item.button.textContent = "Rejected";
-            item.button.classList.add("jt-hide");
-          }
-          showToast(res.error || "Rejected: need email + title after parse", "err");
-        } else if (res.ok) {
-          queueDone++;
-          if (item.button) {
-            item.button.textContent = res.emailSent ? "Saved + sent" : "Saved";
-            item.button.classList.add("jt-ok");
-          }
-          const title = res.application?.jobTitle || "Job";
-          if (res.emailSent) showToast(`Saved + sent: ${title}`, "ok");
-          else if (res.emailSkipped) showToast(`Saved: ${title} — ${res.emailSkipped}`, "info");
-          else showToast(`Saved: ${title}`, "ok");
-        } else {
-          queueFailed++;
-          if (item.button) {
-            item.button.disabled = false;
-            item.button.textContent = "Retry";
-          }
-          showToast((res && res.error) || "Save failed", "err");
-          if (res && res.code === "NOT_LOGGED_IN") {
-            saveQueue.unshift(item);
-            break;
-          }
-        }
-      } catch (e) {
-        queueFailed++;
-        if (item.button) {
-          item.button.disabled = false;
-          item.button.textContent = "Retry";
-        }
-        showToast(e?.message || "Save failed", "err");
-      }
-
-      await sleep(500);
-    }
-
-    queueRunning = false;
-    updateQueueUI();
-  }
-
-  function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
-  }
-
-  // ---------- Inject Save / Hide on posts ----------
-  function inject(el) {
-    const bar = document.createElement("div");
-    bar.className = "jt-bar";
-
-    const save = document.createElement("button");
-    save.type = "button";
-    save.className = "jt-btn jt-save";
-    save.textContent = "Save to JobTrackr";
-
-    const hide = document.createElement("button");
-    hide.type = "button";
-    hide.className = "jt-btn jt-hide";
-    hide.textContent = "Hide";
-
-    bar.appendChild(save);
-    bar.appendChild(hide);
-    el.style.position = el.style.position || "relative";
-    el.prepend(bar);
-
-    save.addEventListener("click", () => {
-      if (save.disabled) return;
-      enqueueSave({ text: postText(el), url: postUrl(el), button: save });
-    });
-
-    hide.addEventListener("click", () => {
-      const url = postUrl(el);
-      if (url) {
-        rejected.add(url);
-        send({ type: "rejectJob", url });
-      }
-      el.classList.add("jt-hidden");
-      showToast("Post hidden.", "info");
-    });
-  }
-
-  // Job-like post? Email is often not in the DOM until expand — backend still filters.
-  function looksLikeJob(text) {
-    if (!text || text.length < 40) return false;
-    return (
-      /\b(hiring|looking for|we(?:'re| are) hiring|job title|position|role|opening|vacancy|apply now|join our team)\b/i.test(text) ||
-      /\b(engineer|developer|designer|manager|analyst|recruiter|intern|consultant|architect|scientist|specialist|sde|swe)\b/i.test(text)
+  /** Click LinkedIn "…more" / "see more" so full post text (and emails) become visible */
+  function expandSeeMore(el) {
+    if (!el) return 0;
+    let clicks = 0;
+    const candidates = el.querySelectorAll(
+      'button, span[role="button"], a[role="button"], .feed-shared-inline-show-more-text, [class*="show-more"], [class*="see-more"]'
     );
+    candidates.forEach((btn) => {
+      const t = ((btn.innerText || btn.textContent || "") + " " + (btn.getAttribute("aria-label") || ""))
+        .toLowerCase()
+        .trim();
+      // Match see more / …more / show more, avoid "see more reactions" etc. lightly
+      if (
+        /^(…|\.\.\.)?more$/.test(t) ||
+        t === "see more" ||
+        t === "show more" ||
+        t.includes("see more") ||
+        t.includes("show more") ||
+        (t.includes("more") && t.length < 24 && !t.includes("comment") && !t.includes("reaction"))
+      ) {
+        try {
+          btn.click();
+          clicks++;
+        } catch (e) {}
+      }
+    });
+    return clicks;
+  }
+
+  function collectPostElements() {
+    const set = new Set();
+    // Primary: activity URN cards
+    document.querySelectorAll("[data-urn*='activity'], [data-id*='activity']").forEach((el) => {
+      // Prefer outermost activity node
+      const outer = el.closest("[data-urn*='activity'], [data-id*='activity']") || el;
+      set.add(outer);
+    });
+    // Fallbacks for alternate LinkedIn layouts
+    document.querySelectorAll(".feed-shared-update-v2, div[data-view-name='feed-full-update'], article.artdeco-card").forEach((el) => {
+      set.add(el);
+    });
+    return Array.from(set).filter((el) => {
+      const len = (el.innerText || "").trim().length;
+      return len >= 40;
+    });
   }
 
   function scan() {
-    document.querySelectorAll(POST_SELECTOR).forEach((el) => {
-      if (el.dataset.jtInjected) return;
-      if ((el.innerText || "").trim().length < 60) return;
-      if (el.parentElement && el.parentElement.closest(NESTED_SELECTOR)) return;
-      el.dataset.jtInjected = "1";
-      applyRejection(el);
-      inject(el);
+    let seen = 0;
+    let queuedNow = 0;
+    let expanded = 0;
+    const nodes = collectPostElements();
 
-      // Auto-save on scroll: queue every job-like post once (backend rejects bad ones)
-      if (autoSaveOnScroll && !el.classList.contains("jt-hidden")) {
-        const url = postUrl(el);
-        const body = postText(el);
-        if (url && !autoSavedUrls.has(url) && !rejected.has(url) && looksLikeJob(body)) {
-          autoSavedUrls.add(url);
-          const saveBtn = el.querySelector(".jt-btn.jt-save");
-          enqueueSave({ text: body, url, button: saveBtn || null });
-        }
+    nodes.forEach((el) => {
+      seen++;
+      expanded += expandSeeMore(el);
+
+      if (!el.dataset.jtInjected) {
+        el.dataset.jtInjected = "1";
+        applyRejection(el);
+        try {
+          inject(el);
+        } catch (e) {}
       }
+
+      if (!autoSaveOnScroll || el.classList.contains("jt-hidden")) return;
+
+      // After expand, re-read text
+      const body = postText(el);
+      if (!body || body.length < 50) return;
+      const url = postUrl(el);
+      const key = postKey(el, body);
+      if (autoSavedUrls.has(key) || (url && rejected.has(url)) || rejected.has(key)) return;
+
+      autoSavedUrls.add(key);
+      const saveBtn = el.querySelector(".jt-btn.jt-save");
+      enqueueSave({ text: body, url: url || key, button: saveBtn || null });
+      queuedNow++;
     });
+
     ensurePanel();
+    if (queueStatusEl) {
+      const pending = saveQueue.length;
+      if (autoSaveOnScroll) {
+        queueStatusEl.textContent = queueRunning || pending
+          ? `Queue ${pending} · saved ${queueDone} · fail ${queueFailed}`
+          : `Scanned ${seen} · expanded ${expanded} · queued ${autoSavedUrls.size}`;
+      } else if (pending || queueRunning) {
+        queueStatusEl.textContent = `Queue ${pending} · saved ${queueDone}`;
+      }
+    }
+    if (autoSaveOnScroll && seen === 0) {
+      showToast("No posts found on screen — scroll the feed a bit", "err");
+    } else if (autoSaveOnScroll && queuedNow > 0) {
+      showToast(`Queued ${queuedNow} from this screen`, "info");
+    }
   }
 
   // ---------- Control panel (queue status + auto-scroll) ----------
@@ -445,11 +392,12 @@
     autoScrollTimer = setTimeout(() => {
       if (!autoScrollOn) return;
       humanScrollStep();
-      // Re-scan + drain queue after scroll settles
+      // Expand "see more", then capture after LinkedIn updates DOM
+      setTimeout(() => scan(), 500);
       setTimeout(() => {
-        scan();
+        scan(); // second pass after see-more expansion
         processQueue();
-      }, 900);
+      }, 1500);
       scheduleNextScroll();
     }, delay);
   }
@@ -457,8 +405,14 @@
   function startAutoScroll() {
     autoScrollOn = true;
     updateScrollToggleUI();
-    showToast(`Auto-scroll ON · delay ${scrollMinMs / 1000}–${scrollMaxMs / 1000}s`, "info");
-    // First scroll after a short pause
+    if (!autoSaveOnScroll) {
+      showToast("Auto-scroll ON — turn on Auto-save on scroll to queue & save posts", "info");
+    } else {
+      showToast(`Auto-scroll + auto-save ON · delay ${scrollMinMs / 1000}–${scrollMaxMs / 1000}s`, "ok");
+      // Capture whatever is already on screen before first scroll
+      scan();
+      processQueue();
+    }
     autoScrollTimer = setTimeout(() => {
       if (!autoScrollOn) return;
       humanScrollStep();
