@@ -9,19 +9,34 @@ import { sendMail } from "../../api/emails";
 
 // Native module only in Android EAS / run:android builds (not Expo Go)
 let LinkedInOverlay = null;
-if (Platform.OS === "android") {
+function loadOverlayModule() {
+  if (Platform.OS !== "android") return null;
   try {
     const mod = require("linkedin-overlay");
-    LinkedInOverlay = mod?.default ?? mod;
+    const api = mod?.default ?? mod;
+    if (api && typeof api.isModuleAvailable === "function") {
+      return api.isModuleAvailable() ? api : null;
+    }
+    // Native present if permission API exists
+    if (api && typeof api.hasOverlayPermission === "function") {
+      try {
+        api.hasOverlayPermission();
+        return api;
+      } catch {
+        return null;
+      }
+    }
+    return api || null;
   } catch {
     try {
       const mod = require("../../../modules/linkedin-overlay");
-      LinkedInOverlay = mod?.default ?? mod;
+      return mod?.default ?? mod;
     } catch {
-      LinkedInOverlay = null;
+      return null;
     }
   }
 }
+LinkedInOverlay = loadOverlayModule();
 
 const DEFAULT_LINKEDIN_LABEL = "Save to JobTrackr";
 const DEFAULT_GMAIL_LABEL = "HR Reply (Gmail)";

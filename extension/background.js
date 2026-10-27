@@ -223,8 +223,8 @@ async function saveJob({ text, url }) {
 
   const created = await api("/applications", { method: "POST", body: payload, token });
   const application = created?.application || created;
-  if (!application?._id) {
-    throw new ApiError("Save failed: no application returned", 0, created);
+  if (!application || !application._id) {
+    throw new ApiError(created?.message || "Save failed: empty application response", 0, created);
   }
 
   let emailSent = false;

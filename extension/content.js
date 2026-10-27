@@ -135,27 +135,24 @@
         const res = await send({ type: "saveJob", text: item.text, url: item.url });
 
         if (!res) {
-          // Background worker asleep / unreachable — re-queue once and stop
           queueFailed++;
           if (item.button) {
             item.button.disabled = false;
             item.button.textContent = "Retry";
-            item.button.classList.remove("jt-queued");
           }
-          showToast("Extension background not responding. Open the popup once, then click Retry.", "err");
-          // put remaining + this item back so user can retry
+          showToast("Background not ready — open extension popup, then Retry", "err");
           saveQueue.unshift(item);
           break;
         }
 
-        if (res && res.ok && res.already) {
+        if (res.ok && res.already) {
           queueDone++;
           if (item.button) {
             item.button.textContent = "Already saved";
             item.button.classList.add("jt-ok");
           }
           showToast(`Already saved: ${res.application?.jobTitle || "post"}`, "info");
-        } else if (res && res.ok && res.rejected) {
+        } else if (res.ok && res.rejected) {
           queueFailed++;
           if (item.url) {
             rejected.add(item.url);
@@ -166,37 +163,25 @@
             item.button.textContent = "Rejected";
             item.button.classList.add("jt-hide");
           }
-          // Soft-hide only when auto-save rejected
-          if (autoSaveOnScroll && item.url) {
-            const el = document.querySelector(`[data-urn], [data-id]`);
-            // leave visible; toast is enough
-          }
-          showToast(res.error || "Rejected: missing email or title", "err");
-        } else if (res && res.ok) {
+          showToast(res.error || "Rejected: need email + title after parse", "err");
+        } else if (res.ok) {
           queueDone++;
           if (item.button) {
             item.button.textContent = res.emailSent ? "Saved + sent" : "Saved";
             item.button.classList.add("jt-ok");
           }
           const title = res.application?.jobTitle || "Job";
-          if (res.emailSent) {
-            showToast(`Saved + email sent: ${title}`, "ok");
-          } else if (res.emailSkipped) {
-            showToast(`Saved: ${title} (${res.emailSkipped})`, "info");
-          } else {
-            showToast(`Saved: ${title}`, "ok");
-          }
+          if (res.emailSent) showToast(`Saved + sent: ${title}`, "ok");
+          else if (res.emailSkipped) showToast(`Saved: ${title} — ${res.emailSkipped}`, "info");
+          else showToast(`Saved: ${title}`, "ok");
         } else {
           queueFailed++;
           if (item.button) {
             item.button.disabled = false;
             item.button.textContent = "Retry";
           }
-          const err = (res && res.error) || "Save failed";
-          showToast(err, "err");
+          showToast((res && res.error) || "Save failed", "err");
           if (res && res.code === "NOT_LOGGED_IN") {
-            showToast("Log in from the JobTrackr extension popup first.", "err");
-            // stop draining until user logs in
             saveQueue.unshift(item);
             break;
           }
@@ -210,18 +195,11 @@
         showToast(e?.message || "Save failed", "err");
       }
 
-      // Small gap so LinkedIn UI stays responsive while queue runs
-      await sleep(400);
+      await sleep(500);
     }
 
     queueRunning = false;
     updateQueueUI();
-    if (saveQueue.length === 0) {
-      showToast(
-        `Queue finished · ${queueDone} saved${queueFailed ? `, ${queueFailed} failed` : ""}`,
-        queueFailed ? "info" : "ok"
-      );
-    }
   }
 
   function sleep(ms) {
@@ -264,18 +242,13 @@
     });
   }
 
-  // Client-side job signal only (email often hidden on LinkedIn until expand).
-  // Backend still rejects saves missing recruiter email / title.
+  // Job-like post? Email is often not in the DOM until expand — backend still filters.
   function looksLikeJob(text) {
     if (!text || text.length < 40) return false;
     return (
-      /\b(hiring|looking for|we(?:'re| are) hiring|job title|position|role|opening|vacancy|apply|join our team)\b/i.test(text) ||
+      /\b(hiring|looking for|we(?:'re| are) hiring|job title|position|role|opening|vacancy|apply now|join our team)\b/i.test(text) ||
       /\b(engineer|developer|designer|manager|analyst|recruiter|intern|consultant|architect|scientist|specialist|sde|swe)\b/i.test(text)
     );
-  }
-
-  function hasVisibleEmail(text) {
-    return /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(text || "");
   }
 
   function scan() {
@@ -287,19 +260,15 @@
       applyRejection(el);
       inject(el);
 
-      // Auto-save on scroll: queue posts that look like jobs (do not require visible email).
-      // Backend rejects if parse finds no email/title. Do not hide before attempting save.
+      // Auto-save on scroll: queue every job-like post once (backend rejects bad ones)
       if (autoSaveOnScroll && !el.classList.contains("jt-hidden")) {
         const url = postUrl(el);
-        const text = postText(el);
-        if (!url || autoSavedUrls.has(url) || rejected.has(url)) {
-          // skip
-        } else if (looksLikeJob(text)) {
+        const body = postText(el);
+        if (url && !autoSavedUrls.has(url) && !rejected.has(url) && looksLikeJob(body)) {
           autoSavedUrls.add(url);
           const saveBtn = el.querySelector(".jt-btn.jt-save");
-          enqueueSave({ text, url, button: saveBtn || null });
+          enqueueSave({ text: body, url, button: saveBtn || null });
         }
-        // Non-job posts: leave visible so user can still Save manually
       }
     });
     ensurePanel();
@@ -319,7 +288,7 @@
         <input type="checkbox" id="jt-auto-save" />
         <span>Auto-save on scroll</span>
       </label>
-      <div class="jt-hint">Queues posts that look like jobs. Backend rejects if no email/title after parse.</div>
+      <div class="jt-hint">Queues job-like posts while you scroll. Backend rejects if no email/title. Enable Auto-send in popup to email recruiters.</div>
       <div class="jt-scroll-row">
         <button type="button" class="jt-panel-btn jt-scroll-toggle" id="jt-scroll-toggle">▶ Auto-scroll</button>
       </div>
@@ -378,7 +347,7 @@
         autoSaveOnScroll = !!autoSaveCb.checked;
         showToast(
           autoSaveOnScroll
-            ? "Auto-save ON · job-like posts are queued (backend filters email/title)"
+            ? "Auto-save ON · job posts go to queue (auto-send if enabled in popup)"
             : "Auto-save OFF",
           "info"
         );
@@ -391,20 +360,7 @@
     }
 
     saveVisibleBtn.addEventListener("click", () => {
-      // Prefer a JobTrackr-injected post in view, else heuristic findVisiblePost
-      let target = null;
-      let best = Infinity;
-      document.querySelectorAll("[data-jt-injected='1']").forEach((el) => {
-        if (el.classList.contains("jt-hidden")) return;
-        const r = el.getBoundingClientRect();
-        if (r.bottom < 80 || r.top > window.innerHeight - 40) return;
-        const d = Math.abs(r.top + r.height / 2 - window.innerHeight / 2);
-        if (d < best) {
-          best = d;
-          target = el;
-        }
-      });
-      if (!target) target = findVisiblePost();
+      const target = findVisiblePost();
       if (!target) {
         showToast("No post in view. Scroll a bit and try again.", "err");
         return;
@@ -415,9 +371,11 @@
         target.style.outline = "";
         target.style.outlineOffset = "";
       }, 1500);
-      const url = postUrl(target) || location.href;
-      const text = postText(target) || (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
-      enqueueSave({ text, url, button: target.querySelector(".jt-btn.jt-save") || null });
+      enqueueSave({
+        text: (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000),
+        url: location.href,
+        button: null,
+      });
     });
 
     updateQueueUI();
@@ -487,8 +445,11 @@
     autoScrollTimer = setTimeout(() => {
       if (!autoScrollOn) return;
       humanScrollStep();
-      // Re-scan posts after scroll settles
-      setTimeout(() => scan(), 800);
+      // Re-scan + drain queue after scroll settles
+      setTimeout(() => {
+        scan();
+        processQueue();
+      }, 900);
       scheduleNextScroll();
     }, delay);
   }
