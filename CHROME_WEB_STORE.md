@@ -49,10 +49,33 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 - **Auto:** push any change under `extension/` to `main` → workflow runs, uploads, submits for review.
 - **Manual:** GitHub → **Actions** tab → "Publish Chrome Extension" → **Run workflow** (useful for re-publishing without a code change).
 
+## Versioning (required on every publish)
+
+The Chrome Web Store rejects any package whose `version` in `extension/manifest.json`
+is **not strictly greater** than the version already stored (published *or* uploaded
+for review). This is the cause of the generic error:
+
+```
+❌ The uploaded package was invalid. Check the additional details for more information.
+```
+
+Before pushing a change under `extension/`, bump `version`:
+
+```jsonc
+// extension/manifest.json
+"version": "1.3.3"
+```
+
+Use up to four dot-separated integers (`1.3.3`, `1.3.4`, ...). Never re-upload the
+same version just because the code changed.
+
+If an upload fails while the item is already **in review**, wait for the review to
+finish (or cancel it in the dashboard) before uploading the next version.
+
 ## Notes
 
 - The extension ID is assigned by the Chrome Web Store after your first manual upload. Do the **first** publish by hand (see the README's "Deploy to Chrome Web Store" section); only then can you automate updates.
-- Each push that changes `extension/` will submit a new version for review. Review usually takes < 24 hours for updates.
+- Each push that changes `extension/` must include a manifest version bump; the workflow submits that new version for review. Review usually takes < 24 hours for updates.
 - If a review fails, the workflow run stays green (the upload succeeded) but you'll get an email from Google. Fix the issue and push again.
 - `icons/generate-icons.mjs` is excluded from the zip (it's a build helper, not needed at runtime).
 - The workflow runs on `ubuntu-latest` and uses `zip` (pre-installed) — no extra build step needed since the extension is plain JS/HTML/CSS.

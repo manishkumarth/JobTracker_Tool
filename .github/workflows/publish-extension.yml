@@ -154,12 +154,15 @@ jobs:
             exit 1
           }
 
-           echo "Uploading and publishing extension package..."
+          echo "Uploading and publishing extension package..."
 
-           chrome-webstore-upload \
-             --source jobtrackr-extension.zip \
-             --extension-id "$EXTENSION_ID" \
-             --publisher-id "$PUBLISHER_ID"
+          if ! chrome-webstore-upload \
+            --source jobtrackr-extension.zip \
+            --extension-id "$EXTENSION_ID" \
+            --publisher-id "$PUBLISHER_ID"; then
+            echo "::error::Chrome Web Store rejected the package. The most common cause is a manifest version that is not greater than the version already published (or already uploaded for review). Bump 'version' in extension/manifest.json and push again. Other causes: the item is mid-review, the package/manifest is invalid, or the developer account is not opted in to CRX uploads."
+            exit 1
+          fi
 
       - name: Workflow summary
         if: success()
