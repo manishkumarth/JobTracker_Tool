@@ -233,60 +233,16 @@ async function saveJob({ text, url }) {
     const hrEmail = (parsed.hrEmail || "").trim().toLowerCase();
     if (hrEmail && EMAIL_RE.test(hrEmail)) {
       try {
-        // 1. Pick the best resume for this role from the candidate's uploaded resumes.
-        //    Match by role keywords against filename + notes (same logic as the web app).
-        let resumeId = null;
-        try {
-          const profile = await api("/profile", { token });
-          const resumes = (profile?.resumes || []).length ? profile.resumes : (await api("/resumes", { token }))?.resumes || [];
-          const resumeList = Array.isArray(resumes) ? resumes : (resumes.resumes || []);
-          if (resumeList.length) {
-            const jobText = `${parsed.jobTitle || ""} ${parsed.jobDescription || text || ""} ${(parsed.requiredSkills || []).join(" ")}`.toLowerCase();
-            const titleText = (parsed.jobTitle || "").toLowerCase();
-            const ROLE_KEYWORDS = [
-              ["java", "spring", "spring boot", "j2ee", "hibernate"],
-              ["react", "reactjs", "react.js"],
-              ["frontend", "front end", "front-end", "angular", "vue", "javascript", "typescript"],
-              ["fullstack", "full stack", "full-stack", "mean", "mern"],
-              ["backend", "back end", "back-end", "node", "django", "express"],
-              ["devops", "aws", "cloud", "sre", "infrastructure"],
-              ["data", "ml", "machine learning", "ai", "analytics"],
-              ["mobile", "android", "ios", "flutter", "react native"],
-            ];
-            const resumeText = (r) => `${r.originalName || ""} ${r.notes || ""}`.toLowerCase();
-            const matchedGroups = ROLE_KEYWORDS.filter((kw) => kw.some((k) => titleText.includes(k)));
-            const descGroups = matchedGroups.length ? matchedGroups : ROLE_KEYWORDS.filter((kw) => kw.some((k) => jobText.includes(k)));
-            const allKw = descGroups.flat();
-            let selected = allKw.length
-              ? resumeList.find((r) => allKw.some((k) => resumeText(r).includes(k)))
-              : null;
-            if (!selected) selected = resumeList.find((r) => r.isDefault) || resumeList[0];
-            resumeId = selected?._id || null;
-          }
-        } catch (e) {
-          // Resume selection is best-effort; never block sending.
-        }
-
-        const draft = await api("/ai/generate-email", {
+        // Backend matches the job title against each resume's role notes,
+        // generates the AI email and sends it with the matched resume.
+        // It never falls back to an arbitrary resume.
+        const auto = await api("/mail/auto-send", {
           method: "POST",
+          token,
           body: { applicationId: application._id },
-          token,
         });
-        await api("/mail/send", {
-          method: "POST",
-          token,
-          body: {
-            applicationId: application._id,
-            recipientEmail: hrEmail,
-            recipientName: parsed.hrName || "",
-            subject: draft.subject,
-            message: draft.body,
-            resumeId: resumeId || undefined,
-            emailType: "Job Application",
-            isAiGenerated: true,
-          },
-        });
-        emailSent = true;
+        emailSent = !!auto.emailSent;
+        if (!emailSent) emailSkipped = "Email could not be sent";
       } catch (err) {
         emailSkipped = err.data?.message || err.message || "Email could not be sent";
       }
