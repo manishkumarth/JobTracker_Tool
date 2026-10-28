@@ -99,11 +99,13 @@ class LinkedInCaptureService : AccessibilityService() {
     if (to.isBlank() && emails.size > 1) to = emails[1]
 
     body = nodes
-      .map { it.text }
+      .map { it.text.trim() }
       .filter { it.length in 40..20000 }
       .filterNot { t -> CHROME_PATTERNS.any { p -> t.contains(p, ignoreCase = true) } }
       .filterNot { t -> t.lowercase().trim() in setOf("inbox", "sent", "drafts", "spam", "trash") }
-      .maxByOrNull { it.length } ?: ""
+      .filterNot { t -> looksLikeUrlOrTracking(t) }
+      .distinct()
+      .maxByOrNull { readabilityScore(it) } ?: ""
 
     if (subject.isBlank()) {
       subject = nodes
@@ -112,6 +114,7 @@ class LinkedInCaptureService : AccessibilityService() {
         .filter { it.length in 5..180 }
         .filterNot { EMAIL_RE.containsMatchIn(it) }
         .filterNot { t -> CHROME_PATTERNS.any { p -> t.contains(p, ignoreCase = true) } }
+        .filterNot { t -> looksLikeUrlOrTracking(t) }
         .filterNot { t ->
           val l = t.lowercase()
           l.startsWith("from") || l.startsWith("to") || l.startsWith("cc") || l.startsWith("date")
@@ -119,7 +122,7 @@ class LinkedInCaptureService : AccessibilityService() {
         .firstOrNull() ?: ""
     }
 
-    if (body.isNotBlank()) PostStore.gmailBody = body
+    if (body.isNotBlank()) PostStore.gmailBody = body else PostStore.gmailBody = ""
     if (subject.isNotBlank()) PostStore.gmailSubject = subject
     if (to.isNotBlank()) PostStore.gmailTo = to
     if (from.isNotBlank()) PostStore.gmailFrom = from
@@ -128,7 +131,7 @@ class LinkedInCaptureService : AccessibilityService() {
       if (from.isNotBlank()) "From: $from" else "",
       if (to.isNotBlank()) "To: $to" else "",
       if (subject.isNotBlank()) "Subject: $subject" else "",
-      body.ifBlank { PostStore.gmailBody }
+      body
     ).filter { it.isNotBlank() }.joinToString("\n\n")
 
     if (combined.isNotBlank()) PostStore.latestText = combined
@@ -147,6 +150,7 @@ class LinkedInCaptureService : AccessibilityService() {
     return candidates
       .filter { it.second.length in 120..6000 }
       .filterNot { c -> CHROME_PATTERNS.any { p -> c.second.contains(p, ignoreCase = true) } }
+      .filterNot { c -> looksLikeUrlOrTracking(c.second) }
       .maxByOrNull { it.first }
       ?.second
   }
@@ -187,11 +191,57 @@ class LinkedInCaptureService : AccessibilityService() {
     }
   }
 
+  /**
+   * Gmail often includes tracking/redirect URLs (Naukri, LinkedIn, etc.) as visible
+   * text. Those are usually the longest text node, so they must be rejected before
+   * choosing the reply body.
+   */
+  private fun looksLikeUrlOrTracking(text: String): Boolean {
+    val t = text.trim()
+    if (t.isEmpty()) return true
+    val lower = t.lowercase()
+    if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("www.")) return true
+    if (TRACKING_MARKERS.any { lower.contains(it) }) return true
+    val escapes = PERCENT_ESCAPE_RE.findAll(t).count()
+    if (escapes >= 6) return true
+    if (escapes >= 3 && escapes * 100 / t.length > 2) return true
+
+    val url = URL_RE.find(t)
+    if (url != null && url.value.length >= (t.length * 0.6).toInt()) return true
+
+    val spaces = t.count { it.isWhitespace() }
+    if (spaces == 0 && t.length > 40) return true
+    if (spaces > 0) {
+      val words = t.split(Regex("\\s+")).filter { it.isNotBlank() }
+      val avgWordLength = t.length.toDouble() / words.size.coerceAtLeast(1)
+      if (avgWordLength > 40) return true
+    }
+    return false
+  }
+
+  private fun readabilityScore(text: String): Int {
+    val letters = text.count { it.isLetter() }
+    val spaces = text.count { it.isWhitespace() }
+    val percent = text.count { it == '%' }
+    val symbols = text.count { it == '=' || it == '/' || it == '?' || it == '&' }
+    return letters + spaces * 3 - percent * 10 - symbols * 2
+  }
+
   companion object {
     @Volatile
     var instance: LinkedInCaptureService? = null
 
     private val EMAIL_RE = Regex("[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}")
+    private val URL_RE = Regex("(?i)\\b(?:https?://|www\\.)\\S+")
+    private val PERCENT_ESCAPE_RE = Regex("%[0-9A-Fa-f]{2}")
+
+    private val TRACKING_MARKERS = listOf(
+      "uba?data=", "data=%7b", "communicationid", "encemail", "encrecipientid",
+      "recipientid", "mailerid", "eventcode", "unsubscribe", "utm_", "clicktrack", "openrate",
+      "you are receiving", "view in browser", "manage preferences", "email preferences",
+      "download the app", "download app", "follow us", "privacy policy", "terms of use",
+      "this email was sent to"
+    )
 
     private val CHROME_PATTERNS = listOf(
       "Accessibility", "Help Center", "Privacy & Terms",

@@ -19,9 +19,8 @@ import {
   computeMatchScore,
   APPLICATION_STATUSES,
 } from "../../api/applications";
-import { generateEmail, generateFollowUpEmail, refineEmail } from "../../api/ai";
-import { sendMail } from "../../api/emails";
-import { listResumes } from "../../api/resumes";
+import { generateFollowUpEmail, refineEmail } from "../../api/ai";
+import { sendMail, autoSendApplicationEmail } from "../../api/emails";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -41,6 +40,8 @@ export default function ApplicationDetail() {
   const [emailBody, setEmailBody] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailStep, setEmailStep] = useState("");
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoStep, setAutoStep] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -98,29 +99,40 @@ export default function ApplicationDetail() {
     ]);
   };
 
-  const openGenerateEmail = async () => {
+  const autoDraftAndSend = async () => {
     if (!user?.gmailConnected) {
       Alert.alert("Gmail required", "Connect Gmail in Profile first.");
       return;
     }
-    setEmailBusy(true);
-    setEmailStep("Generating...");
-    setEmailModal(true);
+    if (!app.hrEmail && !app.contact?.email) {
+      Alert.alert("Missing email", "Add an HR email or link a contact on this application first.");
+      return;
+    }
+    setAutoBusy(true);
+    setAutoStep("Matching resume & drafting email...");
     try {
-      const data = await generateEmail({
-        jobTitle: app.jobTitle,
-        companyName: app.companyName || app.company?.name,
-        jobDescription: app.jobDescription,
-        recruiterName: app.hrName || app.contact?.name,
-      });
-      setEmailSubject(data.subject || "");
-      setEmailBody(data.body || "");
+      const result = await autoSendApplicationEmail(id);
+      const sent = (result.results || []).filter((r) => r.status === "sent").length;
+      if (sent > 0) {
+        Alert.alert(
+          "Email sent",
+          result.resume?.originalName
+            ? `AI email sent with ${result.resume.originalName}.`
+            : "AI email sent from your Gmail."
+        );
+      } else {
+        Alert.alert("Not sent", "The email could not be sent. Check Email History for details.");
+      }
+      await load();
     } catch (e) {
-      Alert.alert("Error", e?.response?.data?.message || e.message);
-      setEmailModal(false);
+      Alert.alert(
+        "Email not sent",
+        e?.response?.data?.message ||
+          "No matching resume was found. Add role notes to your resumes in Profile and try again."
+      );
     } finally {
-      setEmailBusy(false);
-      setEmailStep("");
+      setAutoBusy(false);
+      setAutoStep("");
     }
   };
 
@@ -180,23 +192,15 @@ export default function ApplicationDetail() {
       return;
     }
     setEmailBusy(true);
-    setEmailStep("Selecting resume & sending...");
+    setEmailStep("Sending...");
     try {
-      const resumesRes = await listResumes();
-      const resumes = Array.isArray(resumesRes) ? resumesRes : resumesRes.resumes || [];
-      const resume = resumes.find((r) => r.isDefault) || resumes[0];
-      if (!resume) {
-        Alert.alert("No resume", "Upload a resume on Profile first.");
-        return;
-      }
       await sendMail({
         recipientEmail: to,
         recipientName: app.hrName || app.contact?.name || "",
         subject: emailSubject,
         message: emailBody,
-        resumeId: resume._id,
         applicationId: id,
-        emailType: "Job Application",
+        emailType: "Follow-up",
         isAiGenerated: true,
       });
       Alert.alert("Sent", "Email sent from your Gmail");
@@ -303,10 +307,18 @@ export default function ApplicationDetail() {
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 }}>
           <TouchableOpacity
-            onPress={openGenerateEmail}
-            style={{ backgroundColor: colors.primary, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
+            onPress={autoDraftAndSend}
+            disabled={autoBusy}
+            style={{ backgroundColor: colors.primary, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, opacity: autoBusy ? 0.6 : 1 }}
           >
-            <Text style={{ color: "#fff", fontWeight: "600" }}>AI Email</Text>
+            {autoBusy ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <ActivityIndicator color="#fff" size="small" />
+                <Text style={{ color: "#fff", fontWeight: "600" }}>Working...</Text>
+              </View>
+            ) : (
+              <Text style={{ color: "#fff", fontWeight: "600" }}>Auto Draft &amp; Send Email</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             onPress={openFollowUp}
@@ -327,6 +339,9 @@ export default function ApplicationDetail() {
             <Text style={{ color: colors.danger, fontWeight: "600" }}>Delete</Text>
           </TouchableOpacity>
         </View>
+        {autoBusy && autoStep ? (
+          <Text style={{ color: colors.primary, fontSize: 12 }}>{autoStep}</Text>
+        ) : null}
 
         {/* Notes */}
         <Text style={{ fontWeight: "600", color: colors.text, marginTop: 8 }}>Notes</Text>

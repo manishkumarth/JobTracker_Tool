@@ -7,6 +7,8 @@ import EmailLog from "../models/EmailLog.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { callLLM, parseJson } from "../utils/llmClient.js";
+import { candidateFactsBlock, masterPromptBlock, JSON_ONLY, sanitizeText } from "../utils/candidatePrompt.js";
+import { generateApplicationEmail } from "../utils/emailWriter.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -28,114 +30,43 @@ const getUserProviders = async (userId) => {
   return user?.aiProviders || [];
 };
 
-// Appends the user's own master prompt (stored in their profile) to any AI prompt.
-const masterPromptBlock = (profile) =>
-  profile?.masterPrompt?.trim()
-    ? `\n\nUSER MASTER PROMPT (always follow these instructions):\n${profile.masterPrompt.trim()}\n`
-    : "";
-
-// Builds the anti-hallucination guardrail block shared by every prompt.
-const buildLinksLine = (profile) => {
-  const parts = [];
-  if (profile?.linkedin?.trim()) parts.push(`LinkedIn: ${profile.linkedin.trim()}`);
-  if (profile?.github?.trim()) parts.push(`GitHub: ${profile.github.trim()}`);
-  if (profile?.portfolio?.trim()) parts.push(`Portfolio: ${profile.portfolio.trim()}`);
-  return parts.length ? parts.join(" | ") : "(none provided)";
-};
-
-const buildContactLine = (profile) => {
-  const parts = [];
-  if (profile?.email?.trim()) parts.push(`Email: ${profile.email.trim()}`);
-  if (profile?.phone?.trim()) parts.push(`Phone: ${profile.phone.trim()}`);
-  if (profile?.location?.trim()) parts.push(`Location: ${profile.location.trim()}`);
-  return parts.length ? parts.join(" , ") : "(not provided)";
-};
-
-const candidateFactsBlock = (profile) => `
-CANDIDATE FACTS (the ONLY truth you may use about the candidate — never invent anything beyond this):
-Name: ${profile?.name || "(not provided)"}
-Title: ${profile?.professionalTitle || "(not provided)"}
-Experience: ${profile?.experience || "(not provided)"}
-Current company: ${profile?.currentCompany || "(not provided)"}
-Current CTC: ${profile?.currentCTC || "(not provided)"}
-Expected CTC: ${profile?.expectedCTC || "(not provided)"}
-Notice period: ${profile?.noticePeriod || "(not provided)"}
-Contact details: ${buildContactLine(profile)}
-Skills: ${(profile?.skills || []).join(", ") || "(none listed)"}
-Technologies: ${(profile?.technologies || []).join(", ") || "(none listed)"}
-Previous companies: ${(profile?.previousCompanies || []).join(", ") || "(none listed)"}
-Projects: ${(profile?.projects || []).join(", ") || "(none listed)"}
-Education: ${profile?.education || "(not provided)"}
-Links: ${buildLinksLine(profile)}
-Additional info: ${profile?.additionalInfo || "(none)"}
-
-STRICT RULES:
-- Never claim a skill, technology, company, project, certification, or years of experience that is not listed above.
-- When including links (LinkedIn/GitHub/Portfolio), copy them EXACTLY as a clean URL string with NO brackets or parentheses. Each link on its own line in the signature.
-- When including contact details (phone/email), write them plainly as "Phone: <number>" and "Email: <address>" — never garble digits or brackets.
-- If the job wants something the candidate doesn't have, simply don't mention it — do not apologize for the gap either.
-- Do not invent job titles, achievements, or responsibilities.
-`.trim();
-
-const JSON_ONLY = "Respond ONLY with raw JSON, no markdown fences, no preamble";
-
-// Some models emit stray square brackets / empty lists — strip them from output.
-const sanitizeText = (text) =>
-  (text || "")
-    .replace(/\[\s*\]/g, "")
-    .replace(/\[/g, "")
-    .replace(/\]/g, "")
-    .replace(/\s{3,}/g, "  ")
-    .trim();
-
 // POST /api/ai/generate-email
 router.post("/generate-email", async (req, res) => {
   try {
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const { applicationId, jobTitle, companyName, jobDescription, recruiterName, tone, length, provider, model } = req.body;
 
-    let resolvedJobTitle = jobTitle, resolvedCompany = companyName, resolvedDescription = jobDescription, resolvedRecruiter = recruiterName;
+    let application = {
+      jobTitle,
+      companyName,
+      jobDescription,
+      hrName: recruiterName,
+    };
 
     if (applicationId) {
       const app = await Application.findOne({ _id: applicationId, owner: req.userId });
       if (!app) return res.status(404).json({ message: "Application not found" });
-      resolvedJobTitle = resolvedJobTitle || app.jobTitle;
-      resolvedCompany = resolvedCompany || app.companyName;
-      resolvedDescription = resolvedDescription || app.jobDescription;
-      resolvedRecruiter = resolvedRecruiter || app.hrName;
+      application = {
+        jobTitle: jobTitle || app.jobTitle,
+        companyName: companyName || app.companyName,
+        jobDescription: jobDescription || app.jobDescription,
+        hrName: recruiterName || app.hrName,
+      };
     }
 
-    if (!resolvedJobTitle) return res.status(400).json({ message: "jobTitle (or applicationId) is required" });
+    if (!application.jobTitle) return res.status(400).json({ message: "jobTitle (or applicationId) is required" });
 
     const userProviders = await getUserProviders(req.userId);
-
-    const prompt = `
-You are an assistant that writes truthful, personalized job application emails.
-
-${candidateFactsBlock(profile)}
-
-JOB DETAILS:
-Job title: ${resolvedJobTitle}
-Company: ${resolvedCompany || "(not provided)"}
-Recruiter name: ${resolvedRecruiter || "(unknown)"}
-Job description:
-${resolvedDescription || "(not provided)"}
-
-STYLE:
-Tone: ${tone || "professional"}
-Length: ${length || "short"} (short = under 150 words, medium = 150-250 words)
-
-Write a job application email. Only mention candidate skills/experience that genuinely overlap with what the job needs, drawn strictly from the candidate facts above.
-
-GREETING RULE: If a recruiter name is provided, start with "Dear <name>,". If no recruiter name is provided, start with "Dear Hiring Team," or "Dear Hiring Manager,". Never leave the greeting blank or use placeholders.
-${masterPromptBlock(profile)}
-${JSON_ONLY}, in exactly this shape:
-{"subject": "...", "body": "..."}`.trim();
-
-    const text = await callLLM({ userProviders, prompt, preferProvider: provider, preferModel: model });
-    const parsed = parseJson(text);
-    if (!parsed.subject || !parsed.body) throw new Error("LLM returned an unexpected format");
-    res.json({ subject: sanitizeText(parsed.subject), body: sanitizeText(parsed.body) });
+    const draft = await generateApplicationEmail({
+      profile,
+      application,
+      tone,
+      length,
+      userProviders,
+      provider,
+      model,
+    });
+    res.json(draft);
   } catch (err) {
     cleanAiError(res, err);
   }

@@ -11,3 +11,5 @@ export const uploadAttachment = (file) => {
   return api.post("/mail/upload", formData, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
 };
 export const sendMail = (payload) => api.post("/mail/send", payload).then((r) => r.data);
+export const autoSendApplicationEmail = (applicationId, options = {}) =>
+  api.post("/mail/auto-send", { applicationId, ...options }).then((r) => r.data);

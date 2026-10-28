@@ -7,6 +7,8 @@ import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
+import { matchResumeForJob, describeResumeMatches } from "../utils/resumeMatcher.js";
+import EmailLog from "../models/EmailLog.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -265,6 +267,40 @@ router.post("/bulk/delete", async (req, res) => {
     const result = await Application.deleteMany({ _id: { $in: ids }, owner: req.userId });
     await logUserEvent(req.authUser, "activity", `Deleted ${result.deletedCount} application(s)`, {}, req);
     res.json({ deleted: result.deletedCount });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/applications/:id/resume-match
+// Read-only preview of the resume the auto-send flow will use.
+router.get("/:id/resume-match", async (req, res) => {
+  try {
+    const application = await Application.findOne({ _id: req.params.id, owner: req.userId });
+    if (!application) return res.status(404).json({ message: "Not found" });
+
+    const profile = await CandidateProfile.findOne({ owner: req.userId });
+    const resumes = profile?.resumes || [];
+    const match = matchResumeForJob({ resumes, jobTitle: application.jobTitle });
+    const alreadySent = await EmailLog.findOne({
+      owner: req.userId,
+      application: application._id,
+      status: "Sent",
+    });
+
+    let hasRecipient = !!application.hrEmail;
+    if (!hasRecipient && application.contact) {
+      const contact = await Contact.findOne({ _id: application.contact, owner: req.userId }).select("email");
+      hasRecipient = !!contact?.email;
+    }
+
+    res.json({
+      ...match,
+      resumes: describeResumeMatches({ resumes, jobTitle: application.jobTitle }),
+      hasRecipient,
+      emailAlreadySent: !!alreadySent,
+      alreadySentAt: alreadySent?.sentAt || null,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

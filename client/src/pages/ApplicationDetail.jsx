@@ -440,7 +440,7 @@ export default function ApplicationDetail() {
                   <p className="font-medium text-sm text-gray-900 dark:text-white">{genFollowUp.subject}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{genFollowUp.body}</p>
                   <button
-                    onClick={() => navigator.clipboard.writeText(`${genFollowUp.subject}\n\n${genFollowUp.body}`).then(() => toast.success("Copied — paste it into the AI email box above to send"))}
+                    onClick={() => navigator.clipboard.writeText(`${genFollowUp.subject}\n\n${genFollowUp.body}`).then(() => toast.success("Copied — paste it into your email client"))}
                     className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 mt-2 transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>

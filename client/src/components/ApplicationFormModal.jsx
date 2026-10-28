@@ -3,9 +3,8 @@ import toast from "react-hot-toast";
 import { createApplication } from "../api/applications.js";
 import { listCompanies, createCompany } from "../api/companies.js";
 import { listContacts, createContact } from "../api/contacts.js";
-import { parseLinkedIn, generateEmail } from "../api/ai.js";
-import { listResumes, uploadResume } from "../api/resumes.js";
-import { sendMail } from "../api/emails.js";
+import { parseLinkedIn } from "../api/ai.js";
+import { autoSendApplicationEmail } from "../api/emails.js";
 import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const JOB_SOURCES = ["Naukri", "LinkedIn", "Indeed", "Company Website", "Referral", "Recruiter", "Email", "Other"];
@@ -25,11 +24,6 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
   const [autoProcess, setAutoProcess] = useState(false);
   const [autoProcessing, setAutoProcessing] = useState(false);
   const [autoProcessStep, setAutoProcessStep] = useState("");
-  const [showResumePicker, setShowResumePicker] = useState(false);
-  const [resumeList, setResumeList] = useState([]);
-  const [selectedResumeId, setSelectedResumeId] = useState("");
-  const [pendingAutoProcess, setPendingAutoProcess] = useState(null);
-  const [uploadingResume, setUploadingResume] = useState(false);
   const [form, setForm] = useState({
     companyName: "", company: "", jobTitle: "", jobDescription: "", jobUrl: "",
     jobSource: "LinkedIn", location: "", workMode: "On-site", employmentType: "Full-time",
@@ -127,149 +121,47 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
     const f = overrideForm || form;
     if (!requireGmail()) return;
     setAutoProcessing(true);
-    try {
-      setAutoProcessStep("Generating email...");
-      const emailData = await generateEmail({
-        jobTitle: f.jobTitle,
-        companyName: f.companyName,
-        jobDescription: f.jobDescription,
-        recruiterName: f.hrName,
-      });
-
-      setAutoProcessStep("Selecting resume...");
-      const resumes = await listResumes();
-      const resumeList = Array.isArray(resumes) ? resumes : resumes.resumes || [];
-      if (!resumeList.length) {
-        toast.error("No resume found. Please upload a resume first.");
-        return;
-      }
-
-      const jobText = `${f.jobTitle} ${f.jobDescription} ${f.requiredSkills}`.toLowerCase();
-      const ROLE_KEYWORDS = [
-        ["java", "spring", "spring boot", "j2ee", "hibernate"],
-        ["react", "reactjs", "react.js"],
-        ["frontend", "front end", "front-end", "angular", "vue", "javascript", "typescript"],
-        ["fullstack", "full stack", "full-stack", "mean", "mern"],
-        ["backend", "back end", "back-end", "node", "django", "express"],
-        ["devops", "aws", "cloud", "sre", "infrastructure"],
-        ["data", "ml", "machine learning", "ai", "analytics"],
-        ["mobile", "android", "ios", "flutter", "react native"],
-      ];
-
-      let selectedResume = null;
-      const titleText = f.jobTitle.toLowerCase();
-      const matchedGroups = ROLE_KEYWORDS.filter((keywords) =>
-        keywords.some((kw) => titleText.includes(kw))
-      );
-
-      const resumeText = (r) =>
-        `${r.originalName} ${r.notes || ""}`.toLowerCase();
-
-      if (matchedGroups.length > 0) {
-        const allMatchedKeywords = matchedGroups.flat();
-        selectedResume = resumeList.find((r) =>
-          allMatchedKeywords.some((kw) => resumeText(r).includes(kw))
-        );
-      }
-
-      if (!selectedResume) {
-        const descGroups = ROLE_KEYWORDS.filter((keywords) =>
-          keywords.some((kw) => jobText.includes(kw))
-        );
-        if (descGroups.length > 0) {
-          const allMatchedKeywords = descGroups.flat();
-          selectedResume = resumeList.find((r) =>
-            allMatchedKeywords.some((kw) => resumeText(r).includes(kw))
-          );
-        }
-      }
-
-      if (!selectedResume) {
-        setResumeList(resumeList);
-        setSelectedResumeId(resumeList.find((r) => r.isDefault)?._id || resumeList[0]?._id || "");
-        setPendingAutoProcess(emailData);
-        setShowResumePicker(true);
-        setAutoProcessing(false);
-        return;
-      }
-
-        await finishAutoProcess(selectedResume, emailData, overrideForm);
-    } catch (err) {
-      toast.error(err.response?.data?.message || err.message || "Auto-process failed");
-    } finally {
-      setAutoProcessing(false);
-      setAutoProcessStep("");
-    }
-  };
-
-  const finishAutoProcess = async (resume, emailData, overrideForm = null) => {
-    const f = overrideForm || form;
-    setAutoProcessing(true);
+    let savedApplication = null;
     try {
       setAutoProcessStep("Saving application & contact...");
-      const { application, contactId } = await saveApplication(overrideForm);
+      const { application } = await saveApplication(overrideForm);
+      savedApplication = application;
 
-      if (!f.hrEmail.trim() && !contactId) {
+      if (!f.hrEmail.trim() && !f.contact) {
         toast.success("Application saved. No recruiter email found — email not sent.");
         onSaved();
         onClose();
         return;
       }
 
-      setAutoProcessStep("Sending email...");
-      await sendMail({
-        recipientEmail: f.hrEmail.trim(),
-        recipientName: f.hrName.trim(),
-        subject: emailData.subject,
-        message: emailData.body,
-        resumeId: resume._id,
-        applicationId: application._id,
-        emailType: "Job Application",
-        isAiGenerated: true,
-      });
-
-      toast.success("Application saved and email sent!");
+      setAutoProcessStep("Matching resume, drafting & sending...");
+      const result = await autoSendApplicationEmail(application._id);
+      const sent = (result.results || []).filter((r) => r.status === "sent").length;
+      if (sent > 0) {
+        toast.success(
+          result.resume?.originalName
+            ? `Application saved and email sent with ${result.resume.originalName}`
+            : "Application saved and email sent!"
+        );
+      } else {
+        toast.error("Application saved, but the email failed. Check Email History.");
+      }
       onSaved();
       onClose();
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || "Auto-process failed");
+      const message = err.response?.data?.message || err.message || "Auto-process failed";
+      toast.error(
+        savedApplication
+          ? `${message} Application was saved without sending an email.`
+          : message
+      );
+      if (savedApplication) {
+        onSaved();
+        onClose();
+      }
     } finally {
       setAutoProcessing(false);
       setAutoProcessStep("");
-    }
-  };
-
-  const confirmResumeAndSend = async () => {
-    const resume = resumeList.find((r) => r._id === selectedResumeId);
-    if (!resume) {
-      toast.error("Please select a resume");
-      return;
-    }
-    setShowResumePicker(false);
-    const emailData = pendingAutoProcess;
-    setPendingAutoProcess(null);
-    await finishAutoProcess(resume, emailData);
-  };
-
-  const handleResumeUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.type !== "application/pdf") {
-      toast.error("Only PDF files are allowed");
-      return;
-    }
-    setUploadingResume(true);
-    try {
-      const result = await uploadResume(file);
-      const newResume = result.resume;
-      setResumeList((prev) => [...prev, newResume]);
-      setSelectedResumeId(newResume._id);
-      toast.success("Resume uploaded!");
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to upload resume");
-    } finally {
-      setUploadingResume(false);
-      e.target.value = "";
     }
   };
 
@@ -430,65 +322,6 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
           {/* hidden toggle kept for backward compat */}
           <input type="hidden" value={newContact ? "1" : "0"} />
         </div>
-
-        {showResumePicker && (
-          <div className="border border-color rounded-lg p-4 space-y-3 bg-tertiary/20">
-            <p className="text-sm font-medium text-primary">No resume matched this role. Select one:</p>
-            <select
-              value={selectedResumeId}
-              onChange={(e) => setSelectedResumeId(e.target.value)}
-              className={`w-full ${inputClass}`}
-            >
-              {resumeList.map((r) => (
-                <option key={r._id} value={r._id}>
-                  {r.originalName} ({(r.size / 1024).toFixed(0)} KB){r.notes ? ` — ${r.notes}` : ""}{r.isDefault ? " — Default" : ""}
-                </option>
-              ))}
-            </select>
-
-            <div className="flex items-center gap-3">
-              <div className="flex-1 border-t border-color"></div>
-              <span className="text-xs text-muted">or</span>
-              <div className="flex-1 border-t border-color"></div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-color rounded-lg cursor-pointer hover:border-brand-500 hover:bg-tertiary/30 transition-colors">
-                <svg className="w-5 h-5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <span className="text-sm text-muted">Upload new resume (PDF)</span>
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={handleResumeUpload}
-                />
-              </label>
-              {uploadingResume && (
-                <p className="text-xs text-muted text-center">Uploading...</p>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => { setShowResumePicker(false); setPendingAutoProcess(null); }}
-                className="px-3 py-1.5 rounded-lg text-xs bg-tertiary hover:bg-gray-200 dark:hover:bg-gray-700 text-primary"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmResumeAndSend}
-                disabled={!selectedResumeId}
-                className="px-3 py-1.5 rounded-lg text-xs bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50"
-              >
-                Confirm &amp; Send
-              </button>
-            </div>
-          </div>
-        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm bg-tertiary hover:bg-gray-200 dark:hover:bg-gray-700 text-primary">Cancel</button>

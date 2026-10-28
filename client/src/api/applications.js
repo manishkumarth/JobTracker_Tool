@@ -8,6 +8,7 @@ export const deleteApplication = (id) => api.delete(`/applications/${id}`).then(
 export const changeStatus = (id, status) => api.patch(`/applications/${id}/status`, { status }).then((r) => r.data);
 export const addNote = (id, text) => api.post(`/applications/${id}/notes`, { text }).then((r) => r.data);
 export const computeMatchScore = (id) => api.post(`/applications/${id}/match-score`).then((r) => r.data);
+export const getResumeMatch = (id) => api.get(`/applications/${id}/resume-match`).then((r) => r.data);
 export const bulkUpdateStatus = (ids, status) => api.post("/applications/bulk/status", { ids, status }).then((r) => r.data);
 export const bulkScheduleFollowUp = (ids, date, type, note) => api.post("/applications/bulk/followup", { ids, date, type, note }).then((r) => r.data);
 export const bulkDeleteApplications = (ids) => api.post("/applications/bulk/delete", { ids }).then((r) => r.data);

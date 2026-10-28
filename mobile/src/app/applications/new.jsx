@@ -10,38 +10,12 @@ import {
 } from "react-native";
 import { useState } from "react";
 import { createApplication } from "../../api/applications";
-import { parseLinkedIn, generateEmail } from "../../api/ai";
-import { listResumes } from "../../api/resumes";
-import { sendMail } from "../../api/emails";
+import { parseLinkedIn } from "../../api/ai";
+import { autoSendApplicationEmail } from "../../api/emails";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
-
-const ROLE_KEYWORDS = [
-  ["java", "spring", "spring boot", "j2ee", "hibernate"],
-  ["react", "reactjs", "react.js"],
-  ["frontend", "front end", "front-end", "angular", "vue", "javascript", "typescript"],
-  ["fullstack", "full stack", "full-stack", "mean", "mern"],
-  ["backend", "back end", "back-end", "node", "django", "express"],
-  ["devops", "aws", "cloud", "sre", "infrastructure"],
-  ["data", "ml", "machine learning", "ai", "analytics"],
-  ["mobile", "android", "ios", "flutter", "react native"],
-];
-
-function matchResume(jobTitle, jobDesc, requiredSkills = [], resumes = []) {
-  const jobText = `${jobTitle} ${jobDesc} ${(requiredSkills || []).join(" ")}`.toLowerCase();
-  const titleText = (jobTitle || "").toLowerCase();
-  const resumeText = (r) => `${r.originalName || ""} ${r.notes || ""}`.toLowerCase();
-  const matchedGroups = ROLE_KEYWORDS.filter((kw) => kw.some((k) => titleText.includes(k)));
-  const descGroups = matchedGroups.length
-    ? matchedGroups
-    : ROLE_KEYWORDS.filter((kw) => kw.some((k) => jobText.includes(k)));
-  const allKw = descGroups.flat();
-  let selected = allKw.length ? resumes.find((r) => allKw.some((k) => resumeText(r).includes(k))) : null;
-  if (!selected) selected = resumes.find((r) => r.isDefault) || resumes[0];
-  return selected;
-}
 
 export default function NewApplication() {
   const { user } = useAuth();
@@ -173,46 +147,36 @@ export default function NewApplication() {
     }
     setLoading(true);
     try {
-      setStep("Generating email...");
-      const emailData = await generateEmail({
-        jobTitle: form.jobTitle,
-        companyName: form.companyName,
-        jobDescription: form.jobDescription,
-        recruiterName: form.hrName,
-      });
-
-      setStep("Selecting resume...");
-      const resumesRes = await listResumes();
-      const resumeList = Array.isArray(resumesRes) ? resumesRes : resumesRes.resumes || [];
-      if (!resumeList.length) {
-        Alert.alert("No resume", "Upload a resume on the Profile tab first.");
-        return;
-      }
-      const skills = form.requiredSkills.split(",").map((s) => s.trim()).filter(Boolean);
-      const resume = matchResume(form.jobTitle, form.jobDescription, skills, resumeList);
-      if (!resume) {
-        Alert.alert("No resume", "Could not match a resume.");
-        return;
-      }
-
       setStep("Saving application...");
-      const payload = { ...buildPayload(), status: "EMAIL_SENT" };
-      const app = await createApplication(payload);
-      const application = app.application || app;
+      const appRes = await createApplication(buildPayload());
+      const application = appRes.application || appRes;
 
-      setStep("Sending email...");
-      await sendMail({
-        recipientEmail: form.hrEmail.trim(),
-        recipientName: form.hrName.trim(),
-        subject: emailData.subject,
-        message: emailData.body,
-        resumeId: resume._id,
-        applicationId: application._id,
-        emailType: "Job Application",
-        isAiGenerated: true,
-      });
+      setStep("Matching resume, drafting & sending...");
+      let sendError = "";
+      let sentResume = "";
+      try {
+        const result = await autoSendApplicationEmail(application._id);
+        const sent = (result.results || []).filter((r) => r.status === "sent").length;
+        if (sent > 0) {
+          sentResume = result.resume?.originalName || "";
+        } else {
+          sendError = "Application saved, but the email could not be sent.";
+        }
+      } catch (e) {
+        if (e?.response?.status === 403) throw e;
+        sendError = e?.response?.data?.message || e?.message || "Email could not be sent.";
+      }
 
-      Alert.alert("Done", "Application saved and email sent from your Gmail.");
+      if (sendError) {
+        Alert.alert("Saved without email", `${sendError}\n\nApplication was saved. Update your resume notes in Profile and try again.`);
+      } else {
+        Alert.alert(
+          "Done",
+          sentResume
+            ? `Application saved and email sent with ${sentResume}.`
+            : "Application saved and email sent from your Gmail."
+        );
+      }
       router.replace("/(tabs)/applications");
     } catch (e) {
       if (e?.response?.status === 403) {

@@ -1,18 +1,27 @@
 import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, Switch } from "react-native";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { listTemplates } from "../../api/templates";
 import { listResumes } from "../../api/resumes";
 import { generateDetailReply } from "../../api/ai";
 import { sendMail } from "../../api/emails";
 import { useAuth } from "../../context/AuthContext";
+import {
+  getHrDraft,
+  listHrDrafts,
+  removeHrDraft,
+  takeLegacyHrDraft,
+} from "../../utils/hrDrafts";
 
 const TYPES = ["Job Application", "Follow-up", "Thank You", "Interview", "Referral", "Other"];
 
 export default function HRReply() {
   const { user } = useAuth();
+  const params = useLocalSearchParams();
+  const draftIdParam = Array.isArray(params.draftId) ? params.draftId[0] : params.draftId;
+  const [loadedDraftId, setLoadedDraftId] = useState("");
   const [requestText, setRequestText] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientName, setRecipientName] = useState("");
@@ -52,17 +61,27 @@ export default function HRReply() {
       if (def) setResumeId(def._id);
     }).catch(() => {});
 
-    // Prefill from Gmail overlay (single popup adapts LinkedIn → Gmail)
+    // Prefill from a Gmail overlay draft. Drafts are saved in the background so
+    // capturing several emails never interrupts browsing.
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem("jt_hr_reply_draft");
-        if (!raw) return;
-        const draft = JSON.parse(raw);
+        let draft = null;
+        if (draftIdParam) {
+          draft = await getHrDraft(draftIdParam);
+        }
+        if (!draft) {
+          const drafts = await listHrDrafts();
+          draft = drafts[0] || null;
+        }
+        if (!draft) {
+          draft = await takeLegacyHrDraft();
+        }
+        if (!draft) return;
+        setLoadedDraftId(draft.id || "");
         if (draft.requestText) setRequestText(draft.requestText);
         if (draft.recipientEmail) setRecipientEmail(draft.recipientEmail);
         if (draft.recipientName) setRecipientName(draft.recipientName);
         if (draft.subject) setSubject(draft.subject);
-        await AsyncStorage.removeItem("jt_hr_reply_draft");
         // Auto-generate AI reply when coming from Gmail overlay (manual review path)
         if (draft.fromGmail && draft.requestText) {
           setTimeout(() => {
@@ -76,7 +95,7 @@ export default function HRReply() {
         // ignore
       }
     })();
-  }, []);
+  }, [draftIdParam]);
 
   // Auto-extract a recruiter email from the pasted request
   useEffect(() => {
@@ -143,6 +162,10 @@ export default function HRReply() {
           isAiGenerated: true,
         });
         const sent = result?.results?.filter((r) => r.status === "sent").length || 0;
+        if (sent > 0 && loadedDraftId) {
+          await removeHrDraft(loadedDraftId);
+          setLoadedDraftId("");
+        }
         Alert.alert(sent > 0 ? "Sent" : "Not sent", sent > 0 ? "Reply generated and sent" : "Reply generated but send failed");
       } else {
         Alert.alert("Drafted", "Reply drafted - review and send");
@@ -152,7 +175,7 @@ export default function HRReply() {
     } finally {
       setGenerating(false);
     }
-  }, [templateId, autoSend, recipientName, recipientEmail, resumeId, emailType, requireGmail, requestText]);
+  }, [templateId, autoSend, recipientName, recipientEmail, resumeId, emailType, requireGmail, requestText, loadedDraftId]);
   handleGenerateRef.current = handleGenerate;
 
   // Auto-draft when the toggle is on
@@ -185,6 +208,10 @@ export default function HRReply() {
         isAiGenerated: true,
       });
       const sent = result?.results?.filter((r) => r.status === "sent").length || 0;
+      if (sent > 0 && loadedDraftId) {
+        await removeHrDraft(loadedDraftId);
+        setLoadedDraftId("");
+      }
       Alert.alert(sent > 0 ? "Sent" : "Failed", sent > 0 ? "Reply sent" : "Failed to send reply");
     } catch (err) {
       Alert.alert("Error", err.response?.data?.message || err.message || "Send failed");
@@ -193,15 +220,39 @@ export default function HRReply() {
     }
   };
 
+  const discardDraft = async () => {
+    if (loadedDraftId) await removeHrDraft(loadedDraftId);
+    setLoadedDraftId("");
+    setRequestText("");
+    setRecipientEmail("");
+    setRecipientName("");
+    setSubject("");
+    setBody("");
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontSize: 18, fontWeight: "700" }}>Reply to Recruiter</Text>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text style={{ color: "#2563eb" }}>Back</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+            {loadedDraftId ? (
+              <TouchableOpacity onPress={discardDraft}>
+                <Text style={{ color: "#dc2626" }}>Discard draft</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity onPress={() => router.back()}>
+              <Text style={{ color: "#2563eb" }}>Back</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+        {loadedDraftId ? (
+          <View style={{ borderWidth: 1, borderColor: "#bfdbfe", backgroundColor: "#eff6ff", borderRadius: 8, padding: 10 }}>
+            <Text style={{ color: "#1e40af", fontSize: 12 }}>
+              Loaded from a Gmail capture. The draft stays queued until you send it.
+            </Text>
+          </View>
+        ) : null}
         <Text style={{ color: "#6b7280", fontSize: 12 }}>
           Paste what the HR asked, and AI drafts a reply using your profile details (CTC, notice period, experience, ...).
         </Text>

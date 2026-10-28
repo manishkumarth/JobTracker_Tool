@@ -64,6 +64,28 @@ export default function Applications() {
     ]);
   };
 
+  const allItems = (() => {
+    const raw = data?.applications ?? data;
+    return Array.isArray(raw) ? raw : [];
+  })();
+  // NOTE: must stay above the early returns below — React requires the same
+  // hook order on every render. Calling useMemo after a conditional return
+  // makes the screen crash when data arrives (loading true -> false).
+  const items = useMemo(() => {
+    let list = allItems;
+    if (statusFilter) list = list.filter((a) => a && a.status === statusFilter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (a) =>
+          a &&
+          ((a.jobTitle || "").toLowerCase().includes(q) ||
+            (a.companyName || a.company?.name || "").toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [allItems, statusFilter, search]);
+
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.bg }}>
@@ -82,21 +104,6 @@ export default function Applications() {
       </SafeAreaView>
     );
   }
-
-  const allItems = data?.applications || (Array.isArray(data) ? data : []) || [];
-  const items = useMemo(() => {
-    let list = allItems;
-    if (statusFilter) list = list.filter((a) => a.status === statusFilter);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (a) =>
-          (a.jobTitle || "").toLowerCase().includes(q) ||
-          (a.companyName || a.company?.name || "").toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [allItems, statusFilter, search]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -172,13 +179,15 @@ export default function Applications() {
       </View>
       <FlatList
         data={items}
-        keyExtractor={(item) => item._id}
+        keyExtractor={(item, index) => String(item?._id || index)}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} />
         }
         contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingBottom: 24 }}
         renderItem={({ item }) => {
-          const statusColor = STATUS_COLORS[item.status] || colors.textMuted;
+          if (!item) return null;
+          const statusText = String(item.status || "");
+          const statusColor = STATUS_COLORS[statusText] || colors.textMuted;
           return (
             <TouchableOpacity
               onPress={() =>
@@ -235,6 +244,29 @@ export default function Applications() {
           </Text>
         }
       />
+    </SafeAreaView>
+  );
+}
+
+/**
+ * Expo Router error boundary for this route. Expo Router renders this with
+ * `{ error, retry }` when a render error occurs. Without it a crash in the Jobs
+ * list propagates to the native layer and can close the app.
+ */
+export function ErrorBoundary({ error, retry }) {
+  return (
+    <SafeAreaView
+      style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#f9fafb" }}
+    >
+      <Text style={{ fontSize: 18, fontWeight: "700", color: "#111827", marginBottom: 8 }}>
+        Jobs screen failed to load
+      </Text>
+      <Text style={{ color: "#6b7280", marginBottom: 16 }}>
+        {String(error?.message || error || "Unknown error")}
+      </Text>
+      <TouchableOpacity onPress={() => retry?.()}>
+        <Text style={{ color: "#2563eb", fontWeight: "600" }}>Try again</Text>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }

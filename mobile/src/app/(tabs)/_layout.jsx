@@ -1,16 +1,24 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: colors.tabActive,
         tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: { paddingBottom: 4, height: 56, backgroundColor: colors.tabBg, borderTopColor: colors.border },
+        tabBarStyle: {
+          paddingBottom: Math.max(insets.bottom, 4),
+          paddingTop: 4,
+          height: 56 + insets.bottom,
+          backgroundColor: colors.tabBg,
+          borderTopColor: colors.border,
+        },
         tabBarIcon: ({ color, size }) => {
           let iconName = "grid-outline";
           if (route.name === "dashboard") iconName = "home-outline";

@@ -1,40 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getProfile } from "../api/profile";
-import { listResumes } from "../api/resumes";
 import { createApplication } from "../api/applications";
-import { parseLinkedIn, generateEmail } from "../api/ai";
-import { sendMail } from "../api/emails";
-
-const ROLE_KEYWORDS = [
-  ["java", "spring", "spring boot", "j2ee", "hibernate"],
-  ["react", "reactjs", "react.js"],
-  ["frontend", "front end", "front-end", "angular", "vue", "javascript", "typescript"],
-  ["fullstack", "full stack", "full-stack", "mean", "mern"],
-  ["backend", "back end", "back-end", "node", "django", "express"],
-  ["devops", "aws", "cloud", "sre", "infrastructure"],
-  ["data", "ml", "machine learning", "ai", "analytics"],
-  ["mobile", "android", "ios", "flutter", "react native"],
-];
-
-function matchResume(jobTitle, jobDesc, requiredSkills = [], resumes = []) {
-  const jobText = `${jobTitle} ${jobDesc} ${(requiredSkills || []).join(" ")}`.toLowerCase();
-  const titleText = (jobTitle || "").toLowerCase();
-  const resumeText = (r) => `${r.originalName || ""} ${r.notes || ""}`.toLowerCase();
-  const matchedGroups = ROLE_KEYWORDS.filter((kw) => kw.some((k) => titleText.includes(k)));
-  const descGroups = matchedGroups.length
-    ? matchedGroups
-    : ROLE_KEYWORDS.filter((kw) => kw.some((k) => jobText.includes(k)));
-  const allKw = descGroups.flat();
-  let selected = allKw.length ? resumes.find((r) => allKw.some((k) => resumeText(r).includes(k))) : null;
-  if (!selected) selected = resumes.find((r) => r.isDefault) || resumes[0];
-  return selected;
-}
+import { parseLinkedIn } from "../api/ai";
+import { autoSendApplicationEmail } from "../api/emails";
 
 /**
  * Save a LinkedIn post as an application.
  * Auto-sends AI email only when `autoSendApplication` is true and an HR email is present.
+ * The application is saved first; auto-send runs in the background so capture can continue.
  */
-export async function saveLinkedInPost({ text, url }) {
+export async function saveLinkedInPost({ text, url, onAutoSend }) {
   const token = await AsyncStorage.getItem("token");
   if (!token) throw new Error("Not logged in");
 
@@ -83,44 +57,30 @@ export async function saveLinkedInPost({ text, url }) {
     const hrEmail = (parsed.hrEmail || "").trim().toLowerCase();
     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (hrEmail && EMAIL_RE.test(hrEmail)) {
-      let resumeId;
-      try {
-        let resumes = [];
-        try {
-          const r = await listResumes();
-          resumes = r.resumes || r || [];
-        } catch {
-          const prof = await getProfile();
-          resumes = prof?.resumes || [];
-        }
-        if (!Array.isArray(resumes)) resumes = [];
-        const matched = matchResume(
-          parsed.jobTitle,
-          parsed.jobDescription,
-          parsed.requiredSkills,
-          resumes
-        );
-        resumeId = matched?._id;
-      } catch {
-        /* ignore resume match errors */
-      }
-      try {
-        const draft = await generateEmail({ applicationId: application._id });
-        await sendMail({
-          applicationId: application._id,
-          recipientEmail: hrEmail,
-          recipientName: parsed.hrName || "",
-          subject: draft.subject,
-          message: draft.body,
-          resumeId,
-          emailType: "Job Application",
-          isAiGenerated: true,
+      // Save is already complete. Generate/send in the background so the user
+      // can immediately capture the next post.
+      application._autoSendPending = true;
+      autoSendApplicationEmail(application._id)
+        .then((result) => {
+          application._autoSendPending = false;
+          application._autoSent = !!result.emailSent;
+          if (!result.emailSent) {
+            application._autoSendError = "Email could not be sent";
+          }
+          if (result.resume?.originalName) {
+            application._autoSendResume = result.resume.originalName;
+          }
+          onAutoSend?.(application, result);
+        })
+        .catch((e) => {
+          application._autoSendPending = false;
+          console.warn("Auto-send application email failed", e);
+          application._autoSendError =
+            e?.response?.data?.message || e?.message || "send failed";
+          onAutoSend?.(application, null, e);
         });
-        application._autoSent = true;
-      } catch (e) {
-        console.warn("Auto-send application email failed", e);
-        application._autoSendError = e?.message || "send failed";
-      }
+    } else {
+      application._autoSendError = "No recruiter email found in the post - saved without sending.";
     }
   }
 

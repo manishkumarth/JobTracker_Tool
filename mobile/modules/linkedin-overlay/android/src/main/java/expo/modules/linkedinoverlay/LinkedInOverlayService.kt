@@ -23,6 +23,9 @@ class LinkedInOverlayService : Service() {
 
   private var windowManager: WindowManager? = null
   var overlayView: View? = null
+  private var statusView: TextView? = null
+  private var statusHandler: android.os.Handler? = null
+  private var statusHideRunnable: Runnable? = null
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -42,34 +45,131 @@ class LinkedInOverlayService : Service() {
     super.onDestroy()
     isRunning = false
     instance = null
+    removeStatusBanner()
     removeOverlay()
   }
 
   private fun startForegroundNotification() {
-    val channelId = "jt_overlay"
-    val notification: Notification
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val channel = NotificationChannel(channelId, "JobTrackr Overlay", NotificationManager.IMPORTANCE_LOW)
-      val nm = getSystemService(NotificationManager::class.java)
-      nm.createNotificationChannel(channel)
-      notification = Notification.Builder(this, channelId)
-        .setContentTitle("JobTrackr is ready")
-        .setContentText("Open LinkedIn or Gmail — button adapts")
-        .setSmallIcon(android.R.drawable.ic_menu_save)
-        .build()
-    } else {
-      notification = Notification.Builder(this)
-        .setContentTitle("JobTrackr is ready")
-        .setContentText("Open LinkedIn or Gmail — button adapts")
-        .setSmallIcon(android.R.drawable.ic_menu_save)
-        .build()
-    }
+    val notification = buildNotification("Open LinkedIn or Gmail — button adapts")
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+      startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
     } else {
-      startForeground(1, notification)
+      startForeground(NOTIFICATION_ID, notification)
     }
+  }
+
+  private fun buildNotification(text: String): Notification {
+    val channelId = CHANNEL_ID
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val channel = NotificationChannel(
+        channelId,
+        "JobTrackr Overlay",
+        NotificationManager.IMPORTANCE_LOW
+      )
+      channel.description = "Shows what JobTrackr is doing while capture is running"
+      val nm = getSystemService(NotificationManager::class.java)
+      nm.createNotificationChannel(channel)
+      return Notification.Builder(this, channelId)
+        .setContentTitle("JobTrackr")
+        .setContentText(text)
+        .setSmallIcon(android.R.drawable.ic_menu_save)
+        .setOnlyAlertOnce(true)
+        .setOngoing(true)
+        .setVisibility(Notification.VISIBILITY_PUBLIC)
+        .build()
+    }
+    return Notification.Builder(this)
+      .setContentTitle("JobTrackr")
+      .setContentText(text)
+      .setSmallIcon(android.R.drawable.ic_menu_save)
+      .setOnlyAlertOnce(true)
+      .setOngoing(true)
+      .setVisibility(Notification.VISIBILITY_PUBLIC)
+      .build()
+  }
+
+  /**
+   * Keep the foreground notification in sync with the floating pill so the user
+   * can see save/send progress from the notification shade without opening the app.
+   */
+  fun updateNotification(text: String) {
+    try {
+      val nm = getSystemService(NotificationManager::class.java)
+      nm.notify(NOTIFICATION_ID, buildNotification(text))
+    } catch (_: Exception) {
+    }
+  }
+
+  /**
+   * Temporary banner at the top of the screen (over LinkedIn/Gmail) so the user
+   * sees save/send progress without opening JobTrackr or the notification shade.
+   */
+  fun showStatusBanner(text: String, colorHex: String) {
+    android.os.Handler(android.os.Looper.getMainLooper()).post {
+      val wm = windowManager ?: (getSystemService(WINDOW_SERVICE) as WindowManager)
+      if (wm == null) return@post
+
+      statusHandler?.let { h -> statusHideRunnable?.let { h.removeCallbacks(it) } }
+
+      if (statusView == null) {
+        val tv = TextView(this)
+        tv.setTextColor(Color.WHITE)
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        tv.setPadding(dp(16), dp(10), dp(16), dp(10))
+        tv.elevation = dp(6).toFloat()
+        val params = WindowManager.LayoutParams(
+          WindowManager.LayoutParams.WRAP_CONTENT,
+          WindowManager.LayoutParams.WRAP_CONTENT,
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+          else
+            WindowManager.LayoutParams.TYPE_PHONE,
+          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+          PixelFormat.TRANSLUCENT
+        ).apply {
+          gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+          y = dp(48)
+        }
+        try {
+          wm.addView(tv, params)
+          statusView = tv
+        } catch (_: Exception) {
+          return@post
+        }
+      }
+
+      val v = statusView ?: return@post
+      v.text = text
+      val bg = GradientDrawable()
+      try {
+        bg.setColor(Color.parseColor(colorHex))
+      } catch (_: Exception) {
+        bg.setColor(Color.parseColor("#2563EB"))
+      }
+      bg.cornerRadius = dp(18).toFloat()
+      bg.setStroke(dp(1), Color.WHITE)
+      v.background = bg
+
+      val handler = android.os.Handler(android.os.Looper.getMainLooper())
+      statusHandler = handler
+      statusHideRunnable = Runnable { removeStatusBanner() }
+      statusHideRunnable?.let { handler.postDelayed(it, 3500) }
+    }
+  }
+
+  private fun removeStatusBanner() {
+    statusHandler?.removeCallbacksAndMessages(null)
+    statusHandler = null
+    statusHideRunnable = null
+    statusView?.let {
+      try {
+        windowManager?.removeView(it)
+      } catch (_: Exception) {
+      }
+    }
+    statusView = null
   }
 
   private fun showOverlay() {
@@ -161,10 +261,12 @@ class LinkedInOverlayService : Service() {
               button.text = "Queued…"
               val bg = button.background as? GradientDrawable
               try { bg?.setColor(android.graphics.Color.parseColor("#7c3aed")) } catch (_: Exception) {}
+              showStatusBanner("Queued…", "#7c3aed")
             } else {
               button.text = "Processing…"
               val bg = button.background as? GradientDrawable
               try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+              showStatusBanner("Gmail: processing…", "#f59e0b")
             }
           }
           LinkedInOverlayModule.moduleInstance?.sendEvent(
@@ -192,10 +294,12 @@ class LinkedInOverlayService : Service() {
               button.text = "Queued…"
               val bg = button.background as? GradientDrawable
               try { bg?.setColor(android.graphics.Color.parseColor("#7c3aed")) } catch (_: Exception) {}
+              showStatusBanner("Queued…", "#7c3aed")
             } else {
               button.text = "Saving…"
               val bg = button.background as? GradientDrawable
               try { bg?.setColor(android.graphics.Color.parseColor("#f59e0b")) } catch (_: Exception) {}
+              showStatusBanner("Saving job…", "#f59e0b")
             }
           }
           LinkedInOverlayModule.moduleInstance?.sendEvent(
@@ -251,13 +355,22 @@ class LinkedInOverlayService : Service() {
     @Volatile var isRunning = false
     @Volatile var instance: LinkedInOverlayService? = null
 
+    private const val NOTIFICATION_ID = 1
+    private const val CHANNEL_ID = "jt_overlay"
+
     fun updateOverlay(text: String, colorHex: String) {
       val svc = instance ?: return
+      svc.updateNotification(text)
       android.os.Handler(android.os.Looper.getMainLooper()).post {
         val v = svc.overlayView as? TextView ?: return@post
         v.text = text
         val bg = v.background as? GradientDrawable
         try { bg?.setColor(android.graphics.Color.parseColor(colorHex)) } catch (_: Exception) {}
+      }
+      // Do not show the top banner for the idle labels; only for real progress.
+      val isIdle = text == "Save to JobTrackr" || text == "HR Reply (Gmail)"
+      if (!isIdle) {
+        svc.showStatusBanner(text, colorHex)
       }
     }
   }
