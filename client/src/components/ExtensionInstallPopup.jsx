@@ -14,7 +14,7 @@ const STEPS = [
  * published, ZIP download otherwise).
  */
 export default function ExtensionInstallPopup({ onClose }) {
-  const storeUrl = import.meta.env.VITE_CHROME_STORE_URL || "";
+  const storeUrl = import.meta.env.VITE_CHROME_STORE_URL || "https://chromewebstore.google.com/detail/ohlgnebfcmngomlffmdafhclkmmjgdkf";
 
   return (
     <div className="modal-overlay" onClick={onClose}>
