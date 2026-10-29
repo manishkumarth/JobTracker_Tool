@@ -263,6 +263,17 @@ async function saveJob({ text, url }) {
         jobTitle: err.data?.jobTitle,
       };
     }
+    // 409 = duplicate application already saved today → skip quietly
+    if (err.status === 409) {
+      return {
+        ok: true,
+        rejected: true,
+        already: true,
+        error: err.data?.message || "Duplicate application already saved today.",
+        code: "DUPLICATE_APPLICATION",
+        application: err.data?.existing || null,
+      };
+    }
     throw err;
   }
   if (!application || !application._id) {

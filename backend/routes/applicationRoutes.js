@@ -10,6 +10,10 @@ import { logUserEvent } from "../utils/userLog.js";
 import { matchResumeForJob, describeResumeMatches } from "../utils/resumeMatcher.js";
 import EmailLog from "../models/EmailLog.js";
 
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -69,6 +73,34 @@ router.post("/", async (req, res) => {
           message: `No resume note matches the job title "${req.body.jobTitle}". Post rejected — add role notes (e.g. "Full Stack Developer") to a resume in your profile first.`,
           jobTitle: req.body.jobTitle,
           resumes: describeResumeMatches({ resumes, jobTitle: req.body.jobTitle }),
+        });
+      }
+    }
+
+    // Duplicate guard for auto-capture (extension auto-save-on-scroll / mobile):
+    // reject if an application with the same job title + company + HR email
+    // was already created today (within last 24 hours). LinkedIn exposes the
+    // feed page URL instead of individual post URNs, so URL-based dedup alone
+    // cannot prevent re-saving the same post on every scroll.
+    if (req.body.checkResume) {
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const dupFilter = {
+        owner: req.userId,
+        jobSource: "LinkedIn",
+        createdAt: { $gte: dayAgo },
+        jobTitle: { $regex: new RegExp(`^${escapeRegex(req.body.jobTitle)}$`, "i") },
+        companyName: { $regex: new RegExp(`^${escapeRegex(req.body.companyName || "")}$`, "i") },
+      };
+      const hrEmail = (req.body.hrEmail || "").trim();
+      if (hrEmail) dupFilter.hrEmail = { $regex: new RegExp(`^${escapeRegex(hrEmail)}$`, "i") };
+      const existingDup = await Application.findOne(dupFilter).select(
+        "_id jobTitle companyName hrEmail createdAt status"
+      );
+      if (existingDup) {
+        return res.status(409).json({
+          code: "DUPLICATE_APPLICATION",
+          message: `Duplicate application for "${req.body.jobTitle}" at "${req.body.companyName}" already saved today. Skipped.`,
+          existing: existingDup,
         });
       }
     }
