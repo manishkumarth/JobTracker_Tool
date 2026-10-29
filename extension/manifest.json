@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobTrackr for LinkedIn",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Save LinkedIn job posts to JobTrackr with auto-scroll, auto-save queue, hide noise, and optional AI emails.",
   "icons": {
     "16": "icons/icon-16.png",
