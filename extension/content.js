@@ -353,6 +353,14 @@
       });
     }
 
+    // When auto-save on scroll is OFF, capture nothing — no Save bars, no
+    // auto-queue, no injection. The user must explicitly turn it on.
+    if (!autoSaveOnScroll) {
+      ensurePanel();
+      if (queueStatusEl) queueStatusEl.textContent = "Auto-save OFF";
+      return;
+    }
+
     Array.from(posts).forEach((el) => {
       seen++;
 
@@ -374,7 +382,7 @@
         el.dataset.jtInjected = "1";
       }
 
-      if (!autoSaveOnScroll || el.classList.contains("jt-hidden")) return;
+      if (el.classList.contains("jt-hidden")) return;
 
       expandSeeMore(el);
       const url = postUrl(el);

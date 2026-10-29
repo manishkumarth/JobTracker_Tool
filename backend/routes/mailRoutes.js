@@ -78,6 +78,32 @@ async function performSend(req, params) {
   const user = await User.findById(req.userId);
   const transporter = getTransporter(user);
 
+  // 24-hour dedup: block auto-send to the same recipient within 24 hours.
+  // After 24 hours a new send is allowed.
+  if (applicationId && !allowResend) {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recipients = contactIds?.length
+      ? (await Contact.find({ _id: { $in: contactIds }, owner: req.userId }).select("email")).map(c => c.email)
+      : recipientEmail ? [recipientEmail] : [];
+    for (const rec of recipients) {
+      if (!rec) continue;
+      const recent = await EmailLog.findOne({
+        owner: req.userId,
+        application: applicationId,
+        recipient: rec,
+        status: "Sent",
+        sentAt: { $gte: oneDayAgo },
+      });
+      if (recent) {
+        throw new HttpError(
+          409,
+          `An email was already sent to ${rec} for this application within the last 24 hours. Try again after 24 hours.`,
+          { code: "EMAIL_24H_DEDUP", recipient: rec, alreadySentAt: recent.sentAt }
+        );
+      }
+    }
+  }
+
   let application = null;
   if (applicationId) {
     application = await Application.findOne({ _id: applicationId, owner: req.userId });

@@ -75,6 +75,7 @@ export default function HRReply() {
         recipientName,
         recipientEmail,
         templateId: tid || undefined,
+        detailsOnly: true, // only name, email, contact, portfolio, LinkedIn, GitHub
       });
       setSubject(data.subject || "");
       setBody(data.body || "");
@@ -91,6 +92,7 @@ export default function HRReply() {
           resumeId: resumeId || undefined,
           emailType,
           isAiGenerated: true,
+          detailsOnly: true,
         });
         const sent = result?.results?.filter((r) => r.status === "sent").length || 0;
         toast.success(sent > 0 ? "Reply generated and sent" : "Reply generated but send failed");
@@ -120,6 +122,7 @@ export default function HRReply() {
         resumeId: resumeId || undefined,
         emailType,
         isAiGenerated: true,
+        detailsOnly: true,
       });
       const sent = result?.results?.filter((r) => r.status === "sent").length || 0;
       if (sent > 0) toast.success("Reply sent");

@@ -56,6 +56,23 @@ router.post("/", async (req, res) => {
   try {
     if (!req.body.jobTitle) return res.status(400).json({ message: "Job title is required" });
 
+    // Resume-notes gate: when checkResume is true (extension/mobile auto-capture),
+    // only save if at least one resume's role notes match the job title.
+    if (req.body.checkResume && req.body.jobSource === "LinkedIn") {
+      const profile = await CandidateProfile.findOne({ owner: req.userId });
+      const resumes = profile?.resumes || [];
+      const match = matchResumeForJob({ resumes, jobTitle: req.body.jobTitle });
+      if (!match.matched) {
+        return res.status(422).json({
+          code: "NO_RESUME_MATCH",
+          reason: match.reason,
+          message: `No resume note matches the job title "${req.body.jobTitle}". Post rejected — add role notes (e.g. "Full Stack Developer") to a resume in your profile first.`,
+          jobTitle: req.body.jobTitle,
+          resumes: describeResumeMatches({ resumes, jobTitle: req.body.jobTitle }),
+        });
+      }
+    }
+
     let companyId = req.body.company || null;
     const companyName = (req.body.companyName || "").trim();
     // Auto-create company if name provided but no id (handles direct API calls)

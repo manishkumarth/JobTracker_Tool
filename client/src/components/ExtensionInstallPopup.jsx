@@ -1,19 +1,7 @@
 const STEPS = [
   {
     title: "Get the extension",
-    text: "Click \"Add to Chrome\" below if available, or download the ZIP and unzip it somewhere permanent on your computer.",
-  },
-  {
-    title: "Open Chrome extensions",
-    text: "Type chrome://extensions in the Chrome address bar and press Enter.",
-  },
-  {
-    title: "Enable Developer mode",
-    text: "Turn on the \"Developer mode\" switch in the top-right corner of the extensions page.",
-  },
-  {
-    title: "Load the extension",
-    text: "Click \"Load unpacked\" and select the unzipped folder that contains manifest.json.",
+    text: "Click \"Add to Chrome\" below to install JobTrackr from the Chrome Web Store.",
   },
   {
     title: "Log in inside the extension",
@@ -27,7 +15,6 @@ const STEPS = [
  */
 export default function ExtensionInstallPopup({ onClose }) {
   const storeUrl = import.meta.env.VITE_CHROME_STORE_URL || "";
-  const zipUrl = `${import.meta.env.BASE_URL}jobtrackr-extension.zip`;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -82,13 +69,11 @@ export default function ExtensionInstallPopup({ onClose }) {
               Add to Chrome
             </a>
           )}
-          <a
-            href={zipUrl}
-            download="jobtrackr-extension.zip"
-            className={`btn ${storeUrl ? "btn-secondary" : "btn-primary"} btn-sm flex-1 text-center`}
-          >
-            Download extension ZIP
-          </a>
+          {!storeUrl && (
+            <span className="btn btn-secondary btn-sm flex-1 text-center text-xs opacity-60 pointer-events-none">
+              Store link coming soon
+            </span>
+          )}
         </div>
 
         <ol className="space-y-3 max-h-[35vh] overflow-y-auto pr-1">

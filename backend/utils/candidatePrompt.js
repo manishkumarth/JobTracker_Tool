@@ -61,3 +61,17 @@ export const sanitizeText = (text) =>
     .replace(/\]/g, "")
     .replace(/\s{3,}/g, "  ")
     .trim();
+
+// Limited candidate facts for HR replies: only name, email, contact, portfolio,
+// LinkedIn, GitHub. No CTC, notice period, experience, or other salary details.
+export const limitedFactsBlock = (profile) => {
+  const parts = [];
+  if (profile?.name?.trim()) parts.push(`Name: ${profile.name.trim()}`);
+  if (profile?.email?.trim()) parts.push(`Email: ${profile.email.trim()}`);
+  if (profile?.phone?.trim()) parts.push(`Phone: ${profile.phone.trim()}`);
+  if (profile?.location?.trim()) parts.push(`Location: ${profile.location.trim()}`);
+  if (profile?.portfolio?.trim()) parts.push(`Portfolio: ${profile.portfolio.trim()}`);
+  if (profile?.linkedin?.trim()) parts.push(`LinkedIn: ${profile.linkedin.trim()}`);
+  if (profile?.github?.trim()) parts.push(`GitHub: ${profile.github.trim()}`);
+  return parts.length ? `CANDIDATE DETAILS (only these may be used — nothing else):\n${parts.join("\n")}` : "CANDIDATE DETAILS: (none provided)";
+};

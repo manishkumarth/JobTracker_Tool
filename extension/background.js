@@ -3,6 +3,29 @@ const VALID_WORK_MODE = ["Remote", "Hybrid", "On-site"];
 const VALID_EMPLOYMENT = ["Full-time", "Part-time", "Contract", "Internship"];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// 24-hour dedup on the extension side: key = "email|jobTitle", value = timestamp.
+// Prevents re-calling the backend for the same recipient within 24 hours.
+const sentEmailKeys = new Map();
+
+function isRecentlySent(email, jobTitle) {
+  if (!email) return false;
+  const key = `${email.toLowerCase()}|${(jobTitle || "").trim().toLowerCase()}`;
+  const ts = sentEmailKeys.get(key);
+  if (!ts) return false;
+  return Date.now() - ts < 24 * 60 * 60 * 1000;
+}
+
+function markSent(email, jobTitle) {
+  if (!email) return;
+  const key = `${email.toLowerCase()}|${(jobTitle || "").trim().toLowerCase()}`;
+  sentEmailKeys.set(key, Date.now());
+  // Clean up old entries
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const [k, v] of sentEmailKeys.entries()) {
+    if (v < cutoff) sentEmailKeys.delete(k);
+  }
+}
+
 class ApiError extends Error {
   constructor(message, status, data) {
     super(message);
@@ -217,12 +240,31 @@ async function saveJob({ text, url }) {
     jobUrl: url || "",
     jobSource: "LinkedIn",
     status: "SAVED",
+    // Gate save behind resume-notes match: only save if a resume's role notes
+    // match the job title. The backend rejects (422) when nothing matches.
+    checkResume: true,
   };
   if (VALID_WORK_MODE.includes(parsed.workMode)) payload.workMode = parsed.workMode;
   if (VALID_EMPLOYMENT.includes(parsed.employmentType)) payload.employmentType = parsed.employmentType;
 
-  const created = await api("/applications", { method: "POST", body: payload, token });
-  const application = created?.application || created;
+  let application;
+  try {
+    const created = await api("/applications", { method: "POST", body: payload, token });
+    application = created?.application || created;
+  } catch (err) {
+    // 422 = no resume note matches → reject the post, don't save
+    if (err.status === 422) {
+      return {
+        ok: true,
+        rejected: true,
+        error: err.data?.message || "No resume note matches this job title.",
+        code: "NO_RESUME_MATCH",
+        resumes: err.data?.resumes,
+        jobTitle: err.data?.jobTitle,
+      };
+    }
+    throw err;
+  }
   if (!application || !application._id) {
     throw new ApiError(created?.message || "Save failed: empty application response", 0, created);
   }
@@ -232,19 +274,29 @@ async function saveJob({ text, url }) {
   if (s.autoSend) {
     const hrEmail = (parsed.hrEmail || "").trim().toLowerCase();
     if (hrEmail && EMAIL_RE.test(hrEmail)) {
-      try {
-        // Backend matches the job title against each resume's role notes,
-        // generates the AI email and sends it with the matched resume.
-        // It never falls back to an arbitrary resume.
-        const auto = await api("/mail/auto-send", {
-          method: "POST",
-          token,
-          body: { applicationId: application._id },
-        });
-        emailSent = !!auto.emailSent;
-        if (!emailSent) emailSkipped = "Email could not be sent";
-      } catch (err) {
-        emailSkipped = err.data?.message || err.message || "Email could not be sent";
+      // Extension-side 24-hour dedup: skip if we already sent to this recipient
+      // for this job title within the last 24 hours.
+      if (isRecentlySent(hrEmail, application.jobTitle)) {
+        emailSkipped = `Already sent to ${hrEmail} within the last 24 hours.`;
+      } else {
+        try {
+          const auto = await api("/mail/auto-send", {
+            method: "POST",
+            token,
+            body: { applicationId: application._id },
+          });
+          emailSent = !!auto.emailSent;
+          if (emailSent) markSent(hrEmail, application.jobTitle);
+          if (!emailSent) emailSkipped = "Email could not be sent";
+        } catch (err) {
+          // 409 = 24-hour dedup from backend
+          if (err.status === 409) {
+            emailSkipped = err.data?.message || "Already sent recently.";
+            markSent(hrEmail, application.jobTitle);
+          } else {
+            emailSkipped = err.data?.message || err.message || "Email could not be sent";
+          }
+        }
       }
     } else {
       emailSkipped = "No recruiter email found in the post - saved without sending.";
