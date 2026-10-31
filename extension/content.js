@@ -30,6 +30,8 @@
   let queueRunning = false;
   let queueDone = 0;
   let queueFailed = 0;
+  // Bound how many scans we wait for a post's "see more" text to expand.
+  const collapsedSkips = new WeakMap();
 
   // Auto-scroll state
   let autoScrollOn = false;
@@ -147,6 +149,20 @@
     return (raw || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
   }
 
+  // Auto-save on scroll should only queue what the user can actually see.
+  // Previously the first scan queued every post already rendered in the DOM
+  // (20+ at once) the moment the checkbox was ticked.
+  function isInViewport(el, margin = 120) {
+    try {
+      const r = el.getBoundingClientRect();
+      if (!r || (r.width === 0 && r.height === 0)) return false;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      return r.bottom > -margin && r.top < vh + margin;
+    } catch {
+      return false;
+    }
+  }
+
   function expandSeeMore(el) {
     if (!el) return;
     el.querySelectorAll('button, span[role="button"], [aria-expanded="false"], .feed-shared-inline-show-more-text__see-more-less-toggle').forEach((btn) => {
@@ -155,6 +171,28 @@
         try { btn.click(); } catch (e) {}
       }
     });
+  }
+
+  // True while the post's own text is still collapsed behind "…see more".
+  // Capturing now would read truncated text and miss the recruiter email that
+  // sits at the end of the post, causing a false "email not found" rejection.
+  function hasCollapsedPostText(el) {
+    for (const sel of TEXT_SELECTORS) {
+      const node = el.querySelector(sel);
+      if (!node) continue;
+      const toggles = node.querySelectorAll(
+        '.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-expanded], [role="button"][aria-expanded], [class*="inline-show-more-text"] button'
+      );
+      for (const btn of toggles) {
+        const t = ((btn.innerText || "") + " " + (btn.getAttribute("aria-label") || ""))
+          .toLowerCase()
+          .trim();
+        if (t.includes("see more") || t.includes("show more") || t.includes("…more")) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   function applyRejection(el) {
@@ -353,15 +391,25 @@
       });
     }
 
-    // When auto-save on scroll is OFF, capture nothing — no Save bars, no
-    // auto-queue, no injection. The user must explicitly turn it on.
-    if (!autoSaveOnScroll) {
+    // Auto-save is only meaningful while auto-scroll is running. When
+    // auto-scroll is off we capture nothing — no Save bars, no auto-queue,
+    // no injection. This prevents a single tick of the checkbox from queuing
+    // every post already loaded in the feed.
+    if (!autoScrollOn || !autoSaveOnScroll) {
       ensurePanel();
-      if (queueStatusEl) queueStatusEl.textContent = "Auto-save OFF";
+      if (queueStatusEl) {
+        queueStatusEl.textContent = autoScrollOn
+          ? "Auto-save OFF"
+          : "Auto-scroll OFF";
+      }
       return;
     }
 
     Array.from(posts).forEach((el) => {
+      // Only capture posts currently on screen. Posts further down the feed
+      // get queued as the auto-scroll actually reaches them.
+      if (!isInViewport(el)) return;
+
       seen++;
 
       // ONE Save bar per post
@@ -385,6 +433,14 @@
       if (el.classList.contains("jt-hidden")) return;
 
       expandSeeMore(el);
+      // Wait for the expanded text before reading, otherwise the email at the
+      // bottom of a long post is missed and the post gets wrongly rejected.
+      // Give up after a few passes so a stuck toggle cannot block capture.
+      if (hasCollapsedPostText(el)) {
+        const skips = (collapsedSkips.get(el) || 0) + 1;
+        collapsedSkips.set(el, skips);
+        if (skips <= 3) return;
+      }
       const url = postUrl(el);
       const body = postText(el);
       if (!body || body.length < 40) return;
@@ -426,11 +482,11 @@
       <div class="jt-panel-title">JobTrackr</div>
       <div class="jt-queue-status" id="jt-queue-status">Queue empty</div>
       <button type="button" class="jt-panel-btn jt-save-visible" id="jt-save-visible">Save visible post</button>
-      <label class="jt-checkbox-row">
-        <input type="checkbox" id="jt-auto-save" />
+      <label class="jt-checkbox-row" id="jt-auto-save-row">
+        <input type="checkbox" id="jt-auto-save" disabled />
         <span>Auto-save on scroll</span>
       </label>
-      <div class="jt-hint">Queues job-like posts; server filters by email/title. Auto-send via popup.</div>
+      <div class="jt-hint" id="jt-auto-save-hint">Start Auto-scroll to enable auto-save.</div>
       <div class="jt-scroll-row">
         <button type="button" class="jt-panel-btn jt-scroll-toggle" id="jt-scroll-toggle">▶ Auto-scroll</button>
       </div>
@@ -484,8 +540,14 @@
 
     const autoSaveCb = panelEl.querySelector("#jt-auto-save");
     if (autoSaveCb) {
-      autoSaveCb.checked = autoSaveOnScroll;
       autoSaveCb.addEventListener("change", () => {
+        // Auto-save can only be ON while auto-scroll is running.
+        if (!autoScrollOn) {
+          autoSaveCb.checked = false;
+          updateAutoSaveUI();
+          showToast("Start Auto-scroll first — auto-save follows it.", "info");
+          return;
+        }
         autoSaveOnScroll = !!autoSaveCb.checked;
         showToast(autoSaveOnScroll ? "Auto-save ON — scanning posts…" : "Auto-save OFF", "info");
         if (autoSaveOnScroll) {
@@ -493,6 +555,7 @@
           throttledScan();
         }
         send({ type: "setSettings", autoSaveOnScroll });
+        updateAutoSaveUI();
       });
     }
 
@@ -553,6 +616,7 @@
 
     updateQueueUI();
     updateScrollToggleUI();
+    updateAutoSaveUI();
   }
 
   function findVisiblePost() {
@@ -635,14 +699,15 @@
 
   function startAutoScroll() {
     autoScrollOn = true;
+    // Auto-save on scroll is coupled to auto-scroll: turning scrolling on
+    // turns saving on, so posts are saved as they come into view.
+    autoSaveOnScroll = true;
+    send({ type: "setSettings", autoSaveOnScroll: true });
     updateScrollToggleUI();
-    if (!autoSaveOnScroll) {
-      showToast("Auto-scroll ON — turn on Auto-save on scroll to queue posts", "info");
-    } else {
-      showToast(`Auto-scroll + auto-save ON · delay ${Math.round(scrollMinMs/1000)}–${Math.round(scrollMaxMs/1000)}s`, "ok");
-      expandSeeMore(document.body);
-      throttledScan();
-    }
+    updateAutoSaveUI();
+    showToast(`Auto-scroll + auto-save ON · delay ${Math.round(scrollMinMs/1000)}–${Math.round(scrollMaxMs/1000)}s`, "ok");
+    expandSeeMore(document.body);
+    throttledScan();
     autoScrollTimer = setTimeout(() => {
       if (!autoScrollOn) return;
       humanScrollStep();
@@ -652,12 +717,34 @@
 
   function stopAutoScroll() {
     autoScrollOn = false;
+    // Saving follows scrolling; stop both so nothing keeps queuing in the
+    // background after the user stops auto-scrolling.
+    autoSaveOnScroll = false;
+    send({ type: "setSettings", autoSaveOnScroll: false });
     if (autoScrollTimer) {
       clearTimeout(autoScrollTimer);
       autoScrollTimer = null;
     }
     updateScrollToggleUI();
-    showToast("Auto-scroll stopped", "info");
+    updateAutoSaveUI();
+    if (queueStatusEl) queueStatusEl.textContent = "Auto-scroll OFF";
+    showToast("Auto-scroll stopped — auto-save disabled", "info");
+  }
+
+  function updateAutoSaveUI() {
+    const cb = panelEl && panelEl.querySelector("#jt-auto-save");
+    const row = panelEl && panelEl.querySelector("#jt-auto-save-row");
+    const hint = panelEl && panelEl.querySelector("#jt-auto-save-hint");
+    if (cb) {
+      cb.disabled = !autoScrollOn;
+      cb.checked = autoScrollOn && autoSaveOnScroll;
+    }
+    if (row) row.classList.toggle("jt-disabled", !autoScrollOn);
+    if (hint) {
+      hint.textContent = autoScrollOn
+        ? "Queues only posts that scroll into view. Auto-send via popup."
+        : "Start Auto-scroll to enable auto-save.";
+    }
   }
 
   function updateScrollToggleUI() {
@@ -697,7 +784,13 @@
         (res.state.rejected || []).forEach((u) => rejected.add(u));
         if (typeof res.state.scrollMinMs === "number") scrollMinMs = res.state.scrollMinMs;
         if (typeof res.state.scrollMaxMs === "number") scrollMaxMs = res.state.scrollMaxMs;
-        if (typeof res.state.autoSaveOnScroll === "boolean") autoSaveOnScroll = res.state.autoSaveOnScroll;
+        // Auto-scroll never resumes automatically after a page reload, so a
+        // stale "auto-save on" flag must be dropped too. Saving follows scroll.
+        autoSaveOnScroll = false;
+        if (res.state.autoSaveOnScroll) {
+          send({ type: "setSettings", autoSaveOnScroll: false });
+        }
+        updateAutoSaveUI();
       }
       expandSeeMore(document.body);
       throttledScan();

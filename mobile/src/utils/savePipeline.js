@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createApplication } from "../api/applications";
 import { parseLinkedIn } from "../api/ai";
 import { autoSendApplicationEmail } from "../api/emails";
+import { resolveRecruiterEmail, isUsableEmail } from "./extractEmail";
 
 const DEDUP_KEY = "jt_auto_send_dedup";
 
@@ -65,7 +66,8 @@ export async function saveLinkedInPost({ text, url, onAutoSend }) {
       ? parsed.requiredSkills.filter(Boolean).slice(0, 30)
       : [],
     hrName: parsed.hrName || "",
-    hrEmail: parsed.hrEmail || "",
+    // Fall back to visible post text when the AI parse missed the address.
+    hrEmail: resolveRecruiterEmail(parsed.hrEmail, text),
     hrPhone: parsed.hrPhone || "",
     jobUrl: url || "",
     jobSource: "LinkedIn",
@@ -105,9 +107,8 @@ export async function saveLinkedInPost({ text, url, onAutoSend }) {
     (await AsyncStorage.getItem("autoSend")) === "true";
 
   if (shouldAutoSend) {
-    const hrEmail = (parsed.hrEmail || "").trim().toLowerCase();
-    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (hrEmail && EMAIL_RE.test(hrEmail)) {
+    const hrEmail = (payload.hrEmail || "").trim().toLowerCase();
+    if (hrEmail && isUsableEmail(hrEmail)) {
       // Mobile-side 24-hour dedup: skip if already sent to this recipient
       // for this job title within the last 24 hours.
       if (await isRecentlySent(hrEmail, application.jobTitle)) {

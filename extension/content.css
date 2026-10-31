@@ -212,6 +212,15 @@
   cursor: pointer;
 }
 
+.jt-checkbox-row.jt-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.jt-checkbox-row.jt-disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
 
 .jt-toast {
   position: fixed !important;

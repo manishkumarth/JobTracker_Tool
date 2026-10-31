@@ -2,6 +2,59 @@ const DEFAULT_API_BASE = "https://j-tracker-tool.vercel.app/api";
 const VALID_WORK_MODE = ["Remote", "Hybrid", "On-site"];
 const VALID_EMPLOYMENT = ["Full-time", "Part-time", "Contract", "Internship"];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_FIND_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+
+// Platform / automated addresses must never be treated as the recruiter email.
+const PLATFORM_EMAIL_DOMAINS = ["linkedin.com", "naukri.com", "indeed.com", "glassdoor.com"];
+const AUTOMATED_LOCAL_PARTS = /^(noreply|no-reply|donotreply|do-not-reply|notifications?|mailer|mailer-daemon|postmaster|abuse|support)$/i;
+
+function cleanEmail(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/^[<("'\s]+/, "")
+    .replace(/[>)"'.,;:\s]+$/, "")
+    .toLowerCase();
+}
+
+function isUsableEmail(email) {
+  const e = cleanEmail(email);
+  if (!e || !EMAIL_RE.test(e)) return false;
+  const domain = e.split("@")[1] || "";
+  if (PLATFORM_EMAIL_DOMAINS.some((d) => domain === d || domain.endsWith("." + d))) return false;
+  const local = e.split("@")[0] || "";
+  if (AUTOMATED_LOCAL_PARTS.test(local)) return false;
+  return true;
+}
+
+// Recruiters often write "name [at] gmail [dot] com" or "name at gmail.com".
+function deobfuscateEmailText(text) {
+  let t = String(text || "");
+  if (!t) return t;
+  t = t.replace(/\s*[\[\(\{]\s*at\s*[\]\)\}]\s*/gi, "@");
+  t = t.replace(/\s*[\[\(\{]\s*dot\s*[\]\)\}]\s*/gi, ".");
+  // "name at gmail dot com"
+  t = t.replace(/\s+at\s+([a-z0-9.\-]+)\s+dot\s+([a-z]{2,})/gi, "@$1.$2");
+  // "name at gmail.com" — skip when an @ already follows (e.g. after "(at)" was replaced)
+  t = t.replace(/\s+at\s+((?![^\s]*@)[a-z0-9\-]+(?:\.[a-z0-9\-]+)+)/gi, "@$1");
+  return t;
+}
+
+/**
+ * Extract the best recruiter email from raw post text. The LLM parse can miss
+ * or reject an email the post visibly contains, which produced false
+ * "recruiter email not found" rejections.
+ */
+function extractEmailFromText(text) {
+  const direct = String(text || "").match(EMAIL_FIND_RE) || [];
+  const fromDirect = direct.map(cleanEmail).find(isUsableEmail);
+  if (fromDirect) return fromDirect;
+
+  const deobfuscated = deobfuscateEmailText(text);
+  const fromDeobfuscated = (deobfuscated.match(EMAIL_FIND_RE) || [])
+    .map(cleanEmail)
+    .find(isUsableEmail);
+  return fromDeobfuscated || "";
+}
 
 // 24-hour dedup on the extension side: key = "email|jobTitle", value = timestamp.
 // Prevents re-calling the backend for the same recipient within 24 hours.
@@ -211,9 +264,15 @@ async function saveJob({ text, url }) {
     parseFailed = true;
   }
 
+  // Prefer the AI-extracted email, but fall back to the visible post text so
+  // posts that clearly contain an email are never falsely rejected.
+  const aiEmail = parsed.hrEmail || "";
+  const hrEmail =
+    (isUsableEmail(aiEmail) && cleanEmail(aiEmail)) || extractEmailFromText(text);
+
   // Reject if both email and job title are missing (user requested auto-save filter)
   const jobTitleFound = !!(parsed.jobTitle || "").trim() || !!deriveTitle(text);
-  const emailFound = !!(parsed.hrEmail || "").trim() && EMAIL_RE.test((parsed.hrEmail || "").trim());
+  const emailFound = !!hrEmail;
   if (!jobTitleFound || !emailFound) {
     return {
       ok: true,
@@ -221,7 +280,7 @@ async function saveJob({ text, url }) {
       error: !emailFound && !jobTitleFound
         ? "Rejected: email and job title not found"
         : !emailFound
-          ? "Rejected: recruiter email not found"
+          ? "Rejected: recruiter email not found in post"
           : "Rejected: job title not found",
     };
   }
@@ -235,7 +294,7 @@ async function saveJob({ text, url }) {
     experienceRequired: parsed.experienceRequired || "",
     requiredSkills: Array.isArray(parsed.requiredSkills) ? parsed.requiredSkills.filter(Boolean).slice(0, 30) : [],
     hrName: parsed.hrName || "",
-    hrEmail: parsed.hrEmail || "",
+    hrEmail,
     hrPhone: parsed.hrPhone || "",
     jobUrl: url || "",
     jobSource: "LinkedIn",
@@ -283,7 +342,6 @@ async function saveJob({ text, url }) {
   let emailSent = false;
   let emailSkipped = "";
   if (s.autoSend) {
-    const hrEmail = (parsed.hrEmail || "").trim().toLowerCase();
     if (hrEmail && EMAIL_RE.test(hrEmail)) {
       // Extension-side 24-hour dedup: skip if we already sent to this recipient
       // for this job title within the last 24 hours.
