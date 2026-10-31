@@ -140,13 +140,18 @@
   }
 
   function postText(el) {
-    let node = null;
+    // Prefer the main post body. LinkedIn cards can contain several text
+    // blocks (repost commentary, comments, etc.), so take the longest match
+    // instead of whichever node happens to come first in the DOM.
+    let best = "";
     for (const sel of TEXT_SELECTORS) {
-      node = el.querySelector(sel);
-      if (node && (node.innerText || "").trim().length > 40) break;
+      el.querySelectorAll(sel).forEach((node) => {
+        const t = (node.innerText || "").trim();
+        if (t.length > best.length) best = t;
+      });
     }
-    const raw = node ? node.innerText : el.innerText;
-    return (raw || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
+    if (!best) best = (el.innerText || "").trim();
+    return best.replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
   }
 
   // Auto-save on scroll should only queue what the user can actually see.
@@ -201,7 +206,7 @@
   }
 
   // ---------- Save queue (non-blocking) ----------
-  function enqueueSave({ text, url, button }) {
+  function enqueueSave({ text, url, button, manual = false }) {
     if (!text) {
       showToast("Could not read this post's text.", "err");
       return;
@@ -211,7 +216,7 @@
       button.textContent = "Queued";
       button.classList.add("jt-queued");
     }
-    saveQueue.push({ text, url, button });
+    saveQueue.push({ text, url, button, manual });
     updateQueueUI();
     showToast(`Added to queue (${saveQueue.length} pending)`, "info");
     processQueue();
@@ -230,7 +235,7 @@
       }
 
       try {
-        const res = await send({ type: "saveJob", text: item.text, url: item.url });
+        const res = await send({ type: "saveJob", text: item.text, url: item.url, manual: !!item.manual });
 
         if (res && res.ok && res.already) {
           queueDone++;
@@ -331,7 +336,7 @@
       if (save.disabled) return;
       expandSeeMore(el);
       setTimeout(() => {
-        enqueueSave({ text: postText(el), url: postUrl(el) || location.href, button: save });
+        enqueueSave({ text: postText(el), url: postUrl(el) || location.href, button: save, manual: true });
       }, 250);
     });
 
@@ -560,41 +565,20 @@
     }
 
     saveVisibleBtn.addEventListener("click", () => {
-      // Prefer a JobTrackr-injected post in view
-      let target = null;
-      let best = Infinity;
-      document.querySelectorAll("[data-jt-injected='1']").forEach((el) => {
-        if (el.classList.contains("jt-hidden")) return;
-        const r = el.getBoundingClientRect();
-        if (r.bottom < 60 || r.top > window.innerHeight - 60) return;
-        const d = Math.abs(r.top + r.height / 2 - window.innerHeight / 2);
-        if (d < best) {
-          best = d;
-          target = el;
-        }
-      });
-      if (!target) {
-        // Fallback: look for any post-like element in view with bar or substantial text
-        const candidates = Array.from(document.querySelectorAll("div, section, article, li"));
-        candidates.forEach((el) => {
-          if (el.classList.contains("jt-hidden")) return;
-          const txt = (el.innerText || "").trim();
-          if (txt.length < 80) return;
-          if (el.closest("aside, nav, header, footer")) return;
-          const r = el.getBoundingClientRect();
-          if (r.bottom < 60 || r.top > window.innerHeight - 60) return;
-          const d = Math.abs(r.top + r.height / 2 - window.innerHeight / 2);
-          if (d < best) {
-            best = d;
-            target = el;
-          }
-        });
-      }
-      if (!target) target = findVisiblePost();
-      if (!target) {
-        showToast("No post in view. Scroll a bit and try again.", "err");
+      // One capture mode at a time: while auto-scroll is running posts are
+      // queued automatically, so manual "Save visible post" is disabled.
+      if (autoScrollOn) {
+        showToast("Auto-scroll is running — stop it to save one post manually.", "info");
         return;
       }
+      // Find the actual post card nearest the viewport centre. Do not rely on
+      // JobTrackr-injected bars: they only exist while auto-save is running.
+      const target = findVisiblePost();
+      if (!target) {
+        showToast("No post in view. Scroll until a post fills the screen and retry.", "err");
+        return;
+      }
+
       try {
         target.scrollIntoView({ behavior: "smooth", block: "center" });
       } catch (e) {}
@@ -606,12 +590,26 @@
         target.style.outlineOffset = "";
         target.style.boxShadow = "";
       }, 2000);
-      expandSeeMore(target);
-      setTimeout(() => {
+
+      // Expand "…see more", then read. Retry briefly if the expansion is async
+      // so the extracted text is the full current post, not a partial/stale one.
+      const capture = (attempt = 0) => {
+        expandSeeMore(target);
+        if (hasCollapsedPostText(target) && attempt < 3) {
+          setTimeout(() => capture(attempt + 1), 400);
+          return;
+        }
         const url = postUrl(target) || location.href;
-        const text = postText(target) || (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
-        enqueueSave({ text, url, button: target.querySelector(".jt-btn.jt-save") || null });
-      }, 300);
+        const text =
+          postText(target) ||
+          (target.innerText || "").replace(/\s{3,}/g, "\n\n").trim().slice(0, 8000);
+        if (!text || text.length < 40) {
+          showToast("Could not read this post. Scroll it fully into view and retry.", "err");
+          return;
+        }
+        enqueueSave({ text, url, button: target.querySelector(".jt-btn.jt-save") || null, manual: true });
+      };
+      setTimeout(() => capture(0), 300);
     });
 
     updateQueueUI();
@@ -620,21 +618,83 @@
   }
 
   function findVisiblePost() {
-    const viewportCenter = window.innerHeight / 2;
-    const candidates = Array.from(document.querySelectorAll("div, section, article"))
-      .filter((el) => {
-        const text = (el.innerText || "").trim();
-        if (text.length < 120 || text.length > 6000) return false;
-        if (el.closest("aside, nav, footer, header, [role='complementary'], [role='navigation']")) return false;
-        if (/accessibility|help center|privacy & terms|ad choices|business services/i.test(text)) return false;
-        return true;
-      })
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const elCenter = rect.top + rect.height / 2;
-        return { el, distanceFromCenter: Math.abs(elCenter - viewportCenter) };
-      })
-      .sort((a, b) => a.distanceFromCenter - b.distanceFromCenter);
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!vh) return null;
+    const viewportCenter = vh / 2;
+
+    // Best signal: find the post body text block nearest the centre of the
+    // screen, then climb to its containing post card. This works even when no
+    // JobTrackr bars were injected (auto-save off) and avoids grabbing an
+    // outer feed wrapper that contains several posts.
+    let bestNode = null;
+    let bestNodeDistance = Infinity;
+    document.querySelectorAll(TEXT_SELECTORS.join(", ")).forEach((node) => {
+      const text = (node.innerText || "").trim();
+      if (text.length < 40) return;
+      if (node.closest("aside, nav, header, footer, [role='complementary'], [role='navigation']")) return;
+      const rect = node.getBoundingClientRect();
+      if (!rect || rect.width === 0 || rect.height === 0) return;
+      if (rect.bottom <= 0 || rect.top >= vh) return;
+      const visiblePx = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
+      if (visiblePx < 40) return;
+      const d = Math.abs(rect.top + rect.height / 2 - viewportCenter);
+      if (d < bestNodeDistance) {
+        bestNodeDistance = d;
+        bestNode = node;
+      }
+    });
+    if (bestNode) {
+      const card =
+        bestNode.closest(POST_SELECTOR) ||
+        bestNode.closest(
+          '.feed-shared-update-v2, article, div[data-view-name="feed-full-update"], div.occludable-update, [data-urn*="urn:li:activity"]'
+        ) ||
+        bestNode;
+      return card;
+    }
+
+    const candidates = [];
+    const seen = new Set();
+
+    const consider = (el, weight) => {
+      if (!el || seen.has(el)) return;
+      if (!(el instanceof HTMLElement)) return;
+      seen.add(el);
+      if (el.classList.contains("jt-hidden")) return;
+      if (el.closest("aside, nav, header, footer, [role='complementary'], [role='navigation']")) return;
+      const rect = el.getBoundingClientRect();
+      if (!rect || rect.width < 40 || rect.height < 40) return;
+      const visiblePx = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
+      if (visiblePx < Math.min(80, rect.height * 0.4)) return;
+      const text = (el.innerText || "").trim();
+      if (text.length < 40) return;
+      if (/accessibility|help center|privacy & terms|ad choices|business services|linkedin corporation/i.test(text)) return;
+      candidates.push({
+        el,
+        weight,
+        distance: Math.abs(rect.top + rect.height / 2 - viewportCenter),
+        area: rect.width * rect.height,
+      });
+    };
+
+    document.querySelectorAll("[data-jt-injected='1']").forEach((el) => consider(el, 0));
+    document.querySelectorAll(POST_SELECTOR).forEach((el) => consider(el, 1));
+    document
+      .querySelectorAll(
+        '.feed-shared-update-v2, div[data-view-name="feed-full-update"], div.occludable-update, article, .scaffold-finite-scroll__content > div, .scaffold-finite-scroll__content li, main ul > li, [role="listitem"]'
+      )
+      .forEach((el) => consider(el, 2));
+
+    if (candidates.length === 0) {
+      document.querySelectorAll("div, section, article, li").forEach((el) => {
+        if (el.querySelectorAll("button, a").length < 2) return;
+        consider(el, 3);
+      });
+    }
+
+    candidates.sort(
+      (a, b) => a.weight - b.weight || a.distance - b.distance || a.area - b.area
+    );
     return candidates[0]?.el || null;
   }
 
@@ -747,6 +807,15 @@
     }
   }
 
+  function updateManualSaveUI() {
+    const btn = panelEl && panelEl.querySelector("#jt-save-visible");
+    if (!btn) return;
+    btn.disabled = autoScrollOn;
+    btn.title = autoScrollOn
+      ? "Stop auto-scroll to save a specific post"
+      : "Save the post currently in view";
+  }
+
   function updateScrollToggleUI() {
     const btn = panelEl && panelEl.querySelector("#jt-scroll-toggle");
     if (!btn) return;
@@ -757,6 +826,7 @@
       btn.textContent = "▶ Auto-scroll";
       btn.classList.remove("jt-scroll-on");
     }
+    updateManualSaveUI();
   }
 
   function persistScrollSettings() {

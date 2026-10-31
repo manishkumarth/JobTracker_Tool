@@ -113,6 +113,12 @@
   background: #0958a8;
 }
 
+.jt-save-visible:disabled {
+  background: #9ca3af;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .jt-scroll-toggle {
   background: #f3f4f6;
   color: #374151;

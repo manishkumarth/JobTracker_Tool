@@ -240,7 +240,7 @@ function clearBadge() {
   } catch {}
 }
 
-async function saveJob({ text, url }) {
+async function saveJob({ text, url, manual = false }) {
   const s = await getState();
   if (!s.token) {
     return { ok: false, code: "NOT_LOGGED_IN", error: "Log in from the JobTrackr extension popup first." };
@@ -270,10 +270,13 @@ async function saveJob({ text, url }) {
   const hrEmail =
     (isUsableEmail(aiEmail) && cleanEmail(aiEmail)) || extractEmailFromText(text);
 
-  // Reject if both email and job title are missing (user requested auto-save filter)
+  // The email/title filter is for unattended auto-save. An explicit user
+  // click ("Save visible post" / per-post Save button) must still save the
+  // current post even when no recruiter email is visible.
   const jobTitleFound = !!(parsed.jobTitle || "").trim() || !!deriveTitle(text);
   const emailFound = !!hrEmail;
-  if (!jobTitleFound || !emailFound) {
+  const emailRequired = !manual;
+  if (!jobTitleFound || (emailRequired && !emailFound)) {
     return {
       ok: true,
       rejected: true,
