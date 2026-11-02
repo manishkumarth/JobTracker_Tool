@@ -46,6 +46,7 @@ function defaultFollowUpDateTime() {
 export default function ApplicationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const idParam = id; // Ensure id is explicitly tracked for module scope stability
   const [app, setApp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState("");
