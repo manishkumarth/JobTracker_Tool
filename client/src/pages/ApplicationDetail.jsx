@@ -54,8 +54,7 @@ function defaultFollowUpDateTime() {
 
 export default function ApplicationDetail() {
   const navigate = useNavigate();
-  const { id: routeId } = useParams();
-  const id = routeId ? Number(routeId) : null;
+  const { id } = useParams();   // keep it as a string
 
   const { requireGmail } = useGmailGuard();
 
@@ -292,9 +291,8 @@ export default function ApplicationDetail() {
             {/* Status select */}
             <div className="relative">
               <span
-                className={`absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${
-                  STATUS_DOT_COLORS[app.status] || "bg-gray-400"
-                }`}
+                className={`absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${STATUS_DOT_COLORS[app.status] || "bg-gray-400"
+                  }`}
               ></span>
               <select
                 value={app.status}
@@ -379,13 +377,12 @@ export default function ApplicationDetail() {
                 </h2>
                 {app.matchScore != null && (
                   <span
-                    className={`text-sm font-bold px-3 py-1 rounded-lg ${
-                      app.matchScore >= 80
+                    className={`text-sm font-bold px-3 py-1 rounded-lg ${app.matchScore >= 80
                         ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                         : app.matchScore >= 60
-                        ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                    }`}
+                          ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                      }`}
                   >
                     {app.matchScore}% match
                   </span>
@@ -575,9 +572,8 @@ export default function ApplicationDetail() {
                     {[...app.activity].reverse().map((a, idx) => (
                       <div key={idx} className="relative flex gap-4">
                         <div
-                          className={`relative z-10 w-3.5 h-3.5 rounded-full mt-1 shrink-0 border-2 border-white dark:border-gray-900 ${
-                            idx === 0 ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"
-                          }`}
+                          className={`relative z-10 w-3.5 h-3.5 rounded-full mt-1 shrink-0 border-2 border-white dark:border-gray-900 ${idx === 0 ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"
+                            }`}
                         ></div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-gray-900 dark:text-white">{a.message}</p>
