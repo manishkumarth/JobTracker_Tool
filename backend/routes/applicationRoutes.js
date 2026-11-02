@@ -488,18 +488,60 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
-// Temporary cleanup route (remove after running once)
 router.post("/cleanup-orphaned-followups", async (req, res) => {
-  const FollowUp = (await import("../models/FollowUp.js")).default;
-  const result = await FollowUp.deleteMany({
-    owner: req.userId,
-    $or: [
-      { application: null },
-      { application: { $exists: false } },
-    ],
-  });
-  res.json({ deleted: result.deletedCount });
+  try {
+    const FollowUp = (await import("../models/FollowUp.js")).default;
+
+    // 1. Follow-ups with null / missing application
+    const nullResult = await FollowUp.deleteMany({
+      owner: req.userId,
+      $or: [
+        { application: null },
+        { application: { $exists: false } },
+      ],
+    });
+
+    // 2. Follow-ups that point to an application that no longer exists
+    const allFollowUps = await FollowUp.find({ owner: req.userId }).select("_id application");
+    const appIds = [
+      ...new Set(
+        allFollowUps
+          .map((f) => f.application?.toString?.() || f.application)
+          .filter(Boolean)
+      ),
+    ];
+
+    const existingApps = await Application.find({
+      _id: { $in: appIds },
+      owner: req.userId,
+    }).select("_id");
+
+    const existingSet = new Set(existingApps.map((a) => a._id.toString()));
+
+    const orphanIds = allFollowUps
+      .filter((f) => {
+        const appId = f.application?.toString?.() || f.application;
+        return appId && !existingSet.has(appId);
+      })
+      .map((f) => f._id);
+
+    let danglingResult = { deletedCount: 0 };
+    if (orphanIds.length > 0) {
+      danglingResult = await FollowUp.deleteMany({
+        _id: { $in: orphanIds },
+        owner: req.userId,
+      });
+    }
+
+    res.json({
+      deletedNull: nullResult.deletedCount,
+      deletedDangling: danglingResult.deletedCount,
+      totalDeleted: nullResult.deletedCount + danglingResult.deletedCount,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
+  }
 });
 
 export default router;
