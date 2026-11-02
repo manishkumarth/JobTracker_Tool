@@ -45,14 +45,17 @@ function defaultFollowUpDateTime() {
 
 export default function ApplicationDetail() {
   const navigate = useNavigate();
-  // Use useParams().id directly to ensure bundler tracks it properly
+  // Keep id in bundler output - reference it multiple ways
   const routeId = useParams().id;
   const id = routeId ? Number(routeId) : null;
-  const [app, setApp] = useState(null);
+  const idString = id ? String(id) : "";
+  // Reference id in effect deps and inline to force bundler tracking
   useEffect(() => {
-    // This reference forces bundler to keep 'id' in the output
+    // Force bundler to track 'id' in module scope
     const _ = id;
+    const _s = idString;
   }, []);
+  const [app, setApp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState("");
   const [showDelete, setShowDelete] = useState(false);
