@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   getApplication,
   addNote,
@@ -21,10 +22,20 @@ import {
 } from "../../api/applications";
 import { generateFollowUpEmail, refineEmail } from "../../api/ai";
 import { sendMail, autoSendApplicationEmail } from "../../api/emails";
+import { createFollowUp } from "../../api/followups";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { STATUS_COLORS } from "../../constants";
+
+const FOLLOW_UP_TYPES = [
+  "Email Follow-up",
+  "Call Follow-up",
+  "LinkedIn Follow-up",
+  "Recruiter Follow-up",
+  "Interview Follow-up",
+  "General",
+];
 
 export default function ApplicationDetail() {
   const { id } = useLocalSearchParams();
@@ -43,12 +54,22 @@ export default function ApplicationDetail() {
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoStep, setAutoStep] = useState("");
 
+  /* Follow-up action menu */
+  const [followUpMenu, setFollowUpMenu] = useState(false);
+  const [followUpBusy, setFollowUpBusy] = useState(false);
+  const [followUpDisabled, setFollowUpDisabled] = useState(false);
+  const [scheduleModal, setScheduleModal] = useState(false);
+  const [scheduleType, setScheduleType] = useState("Interview Follow-up");
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleNote, setScheduleNote] = useState("");
+
   const load = async () => {
     setLoading(true);
     setErr("");
     try {
       const res = await getApplication(id);
       setApp(res.application || res);
+      await loadFollowUpDisabled();
     } catch (e) {
       setErr(e?.response?.data?.message || e.message);
     } finally {
@@ -99,6 +120,27 @@ export default function ApplicationDetail() {
     ]);
   };
 
+  const loadFollowUpDisabled = async () => {
+    try {
+      const v = await AsyncStorage.getItem(`jt_fu_disabled_${id}`);
+      setFollowUpDisabled(v === "true");
+    } catch {}
+  };
+
+  const toggleFollowUpDisabled = async () => {
+    const next = !followUpDisabled;
+    setFollowUpDisabled(next);
+    try {
+      await AsyncStorage.setItem(`jt_fu_disabled_${id}`, next ? "true" : "false");
+      Alert.alert(
+        next ? "Follow-ups disabled" : "Follow-ups enabled",
+        next
+          ? "This job won't be included in auto follow-ups."
+          : "This job will be included in auto follow-ups again."
+      );
+    } catch {}
+  };
+
   const autoDraftAndSend = async () => {
     if (!user?.gmailConnected) {
       Alert.alert("Gmail required", "Connect Gmail in Profile first.");
@@ -137,6 +179,10 @@ export default function ApplicationDetail() {
   };
 
   const openFollowUp = async () => {
+    if (followUpDisabled) {
+      Alert.alert("Follow-ups disabled", "Enable follow-ups for this job first from the Follow-up menu.");
+      return;
+    }
     if (!user?.gmailConnected) {
       Alert.alert("Gmail required", "Connect Gmail in Profile first.");
       return;
@@ -154,6 +200,41 @@ export default function ApplicationDetail() {
     } finally {
       setEmailBusy(false);
       setEmailStep("");
+    }
+  };
+
+  const openScheduleMenu = () => setFollowUpMenu(true);
+
+  const scheduleFollowUp = async (typeOverride) => {
+    setFollowUpMenu(false);
+    setScheduleType(typeOverride || "Interview Follow-up");
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setScheduleDate(tomorrow.toISOString().slice(0, 16));
+    setScheduleNote("");
+    setScheduleModal(true);
+  };
+
+  const saveScheduledFollowUp = async () => {
+    if (!scheduleDate) {
+      Alert.alert("Required", "Pick a date and time");
+      return;
+    }
+    setFollowUpBusy(true);
+    try {
+      await createFollowUp({
+        application: id,
+        type: scheduleType,
+        date: scheduleDate,
+        note: scheduleNote,
+      });
+      setScheduleModal(false);
+      await load();
+      Alert.alert("Scheduled", "Follow-up scheduled");
+    } catch (e) {
+      Alert.alert("Error", e?.response?.data?.message || e.message);
+    } finally {
+      setFollowUpBusy(false);
     }
   };
 
@@ -321,10 +402,21 @@ export default function ApplicationDetail() {
             )}
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={openFollowUp}
-            style={{ backgroundColor: colors.warning, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
+            onPress={openScheduleMenu}
+            disabled={followUpBusy}
+            style={{
+              backgroundColor: followUpDisabled ? "#9ca3af" : colors.warning,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 8,
+              opacity: followUpBusy ? 0.6 : 1,
+            }}
           >
-            <Text style={{ color: "#fff", fontWeight: "600" }}>Follow-up</Text>
+            {followUpBusy ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={{ color: "#fff", fontWeight: "600" }}>Follow-up ▾</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             onPress={onMatchScore}
@@ -479,6 +571,111 @@ export default function ApplicationDetail() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={{ color: "#fff", fontWeight: "600" }}>Send via Gmail</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Follow-up action menu */}
+      <Modal visible={followUpMenu} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: colors.card, padding: 16, gap: 8, maxHeight: "75%" }}>
+            <Text style={{ fontWeight: "700", color: colors.text, marginBottom: 6 }}>
+              Follow-up for {app?.jobTitle || "this job"}
+            </Text>
+            {followUpDisabled ? (
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
+                Follow-ups are currently disabled for this job.
+              </Text>
+            ) : null}
+            <FlatList
+              data={[
+                { label: "Follow-up Email", onPress: openFollowUp, disabled: followUpDisabled || !user?.gmailConnected },
+                { label: "Follow-up Interview", onPress: () => scheduleFollowUp("Interview Follow-up"), disabled: followUpDisabled },
+                { label: "Add more (custom)", onPress: () => scheduleFollowUp("General"), disabled: followUpDisabled },
+                {
+                  label: followUpDisabled ? "Enable follow-ups for this job" : "Disable follow-ups for this job",
+                  onPress: toggleFollowUpDisabled,
+                },
+              ]}
+              keyExtractor={(_, i) => String(i)}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={item.disabled ? undefined : item.onPress}
+                  disabled={item.disabled}
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: colors.border,
+                    opacity: item.disabled ? 0.5 : 1,
+                  }}
+                >
+                  <Text style={{ color: item.disabled ? colors.textMuted : colors.text, fontSize: 14 }}>
+                    {item.label}
+                  </Text>
+                  {!item.disabled ? <Text style={{ color: colors.primary, fontSize: 12 }}>&gt;</Text> : null}
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity
+              onPress={() => setFollowUpMenu(false)}
+              style={{ padding: 14, alignItems: "center", marginTop: 4 }}
+            >
+              <Text style={{ color: colors.primary, fontWeight: "600" }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Schedule / custom follow-up modal */}
+      <Modal visible={scheduleModal} animationType="slide">
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: colors.text }}>
+                Schedule follow-up
+              </Text>
+              <TouchableOpacity onPress={() => setScheduleModal(false)}>
+                <Text style={{ color: colors.primary }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.textMuted, fontSize: 12 }}>{scheduleType}</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>Date & time</Text>
+            <TextInput
+              value={scheduleDate}
+              onChangeText={setScheduleDate}
+              placeholder="YYYY-MM-DD HH:mm"
+              placeholderTextColor={colors.textMuted}
+              style={inputStyle}
+            />
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>Note (optional)</Text>
+            <TextInput
+              value={scheduleNote}
+              onChangeText={setScheduleNote}
+              placeholder="e.g. Check status after interview"
+              placeholderTextColor={colors.textMuted}
+              style={inputStyle}
+            />
+            <TouchableOpacity
+              onPress={saveScheduledFollowUp}
+              disabled={followUpBusy || !scheduleDate}
+              style={{
+                backgroundColor: colors.primary,
+                padding: 14,
+                borderRadius: 8,
+                alignItems: "center",
+                opacity: followUpBusy || !scheduleDate ? 0.6 : 1,
+              }}
+            >
+              {followUpBusy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={{ color: "#fff", fontWeight: "600" }}>Schedule</Text>
               )}
             </TouchableOpacity>
           </ScrollView>

@@ -6,10 +6,12 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  Switch,
 } from "react-native";
 import { useEffect, useState } from "react";
 import { getProfile, updateProfile } from "../../api/profile";
 import { listResumes, uploadResume, setDefaultResume, updateResume, deleteResume } from "../../api/resumes";
+import { updateFeature } from "../../api/settings";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import api from "../../api/axios";
@@ -36,6 +38,7 @@ export default function ProfileScreen() {
   const [gmailAddress, setGmailAddress] = useState("");
   const [appPassword, setAppPassword] = useState("");
   const [gmailBusy, setGmailBusy] = useState(false);
+  const [autoFollowUp, setAutoFollowUp] = useState(user?.features?.autoFollowUp ?? true);
 
   const load = async () => {
     setLoading(true);
@@ -135,6 +138,19 @@ export default function ProfileScreen() {
       Alert.alert("Error", e?.response?.data?.message || e.message);
     } finally {
       setGmailBusy(false);
+    }
+  };
+
+  const toggleAutoFollowUp = async (v) => {
+    setAutoFollowUp(v);
+    try {
+      await updateFeature("autoFollowUp", v);
+      Alert.alert(v ? "Auto follow-ups enabled" : "Auto follow-ups disabled", v
+        ? "Follow-up emails will be sent automatically."
+        : "You can still create and send follow-ups manually.");
+    } catch (e) {
+      setAutoFollowUp(!v);
+      Alert.alert("Error", e?.response?.data?.message || "Could not update auto follow-ups");
     }
   };
 
@@ -338,6 +354,30 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Auto follow-ups */}
+        <Text style={{ fontSize: 16, fontWeight: "700", marginTop: 16, color: colors.text }}>
+          Auto Follow-ups
+        </Text>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: colors.text, fontWeight: "600" }}>
+              Send follow-up emails automatically
+            </Text>
+            <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+              When ON, due follow-ups are sent from your connected Gmail.
+            </Text>
+          </View>
+          <Switch
+            value={autoFollowUp}
+            onValueChange={toggleAutoFollowUp}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor={v ? colors.primary : "#cbd5e1"}
+          />
+        </View>
+        <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+          Default: ON. You can still create, edit, send or cancel follow-ups manually from Follow-ups.
+        </Text>
 
         {/* Resumes */}
         <Text style={{ fontSize: 16, fontWeight: "700", marginTop: 16, color: colors.text }}>

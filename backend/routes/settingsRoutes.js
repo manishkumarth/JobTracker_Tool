@@ -108,6 +108,33 @@ router.post("/providers/:provider/activate", async (req, res) => {
   }
 });
 
+// PATCH /api/settings/features — toggle a user feature flag (e.g. autoFollowUp)
+router.patch("/features", async (req, res) => {
+  try {
+    const { feature, value } = req.body;
+    const valid = ["sendEmail", "aiEmail", "autoFollowUp", "resumeUpload", "quickFill"];
+    if (!feature || !valid.includes(feature)) {
+      return res.status(400).json({ message: "Invalid feature" });
+    }
+    if (typeof value !== "boolean") {
+      return res.status(400).json({ message: "value must be boolean" });
+    }
+    if (req.user.email === "manish12099@gmail.com") {
+      return res.status(403).json({ message: "Cannot change the admin account's features" });
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user.features) user.features = {};
+    user.features[feature] = value;
+    await user.save();
+
+    res.json({ message: `Feature ${feature} ${value ? "enabled" : "disabled"}`, features: user.features });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // POST /api/settings/providers/test — test a provider key
 router.post("/providers/test", async (req, res) => {
   try {

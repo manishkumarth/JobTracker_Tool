@@ -10,6 +10,7 @@ const LINKS = [
   { label: "Email History", href: "/emails", icon: "✉️" },
   { label: "Email Templates", href: "/templates", icon: "📄" },
   { label: "Follow-ups", href: "/followups", icon: "🔄" },
+  { label: "Calendar", href: "/calendar", icon: "📅" },
   { label: "Interviews", href: "/interviews", icon: "🗓️" },
   { label: "Reply to HR", href: "/hr-reply", icon: "💬" },
   { label: "AI Settings", href: "/ai-settings", icon: "🤖" },
