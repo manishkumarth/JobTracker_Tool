@@ -8,7 +8,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
 const CONTACT_TYPES = ["HR", "Recruiter", "Hiring Manager", "Founder", "Employee", "Referral", "Other"];
-
+ 
 export default function Contacts() {
   const [contacts, setContacts] = useState([]);
   const [companies, setCompanies] = useState([]);
