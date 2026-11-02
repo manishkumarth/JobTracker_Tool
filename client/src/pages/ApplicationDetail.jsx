@@ -63,7 +63,10 @@ export default function ApplicationDetail() {
   const [menuItem, setMenuItem] = useState("email");
     getApplication(id).then(setApp).catch(() => toast.error("Failed to load application")).finally(() => setLoading(false));
   };
-  useEffect(load, [id]);
+  const load = () => {
+    getApplication(id).then(setApp).catch(() => toast.error("Failed to load application")).finally(() => setLoading(false));
+};
+useEffect(load, [id]);
 
   let loadingUI = null;
   if (loading) {
