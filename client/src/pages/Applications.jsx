@@ -91,7 +91,7 @@ export default function Applications() {
     setBulkAction(action);
     // Execute immediately — previously only set state and never ran (bug)
     await executeBulkAction(action);
-  };
+  };  
 
   const confirmBulkDelete = () => {
     if (!selectedIds.length) return toast.error("No applications selected");

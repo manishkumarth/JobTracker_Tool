@@ -10,7 +10,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import AIEmailGenerator from "../components/AIEmailGenerator.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { useGmailGuard } from "../context/GmailContext.jsx";
-
+  
 const CALL_RESULTS = ["Connected", "No Answer", "Busy", "Callback Requested", "Wrong Number", "Not Interested", "Interested", "Asked to Email", "Interview Discussion", "Other"];
 const INTERVIEW_TYPES = ["Phone", "Video", "Technical", "HR", "Managerial", "Assessment", "On-site"];
 const ROUNDS = ["Round 1", "Round 2", "Round 3", "Final"];
