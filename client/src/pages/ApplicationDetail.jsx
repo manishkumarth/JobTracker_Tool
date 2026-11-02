@@ -65,8 +65,9 @@ export default function ApplicationDetail() {
   };
   useEffect(load, [id]);
 
+  let loadingUI = null;
   if (loading) {
-    return (
+    loadingUI = (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="flex items-center gap-3 text-gray-400">
           <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -78,8 +79,9 @@ export default function ApplicationDetail() {
       </div>
     );
   }
+  let notFoundUI = null;
   if (!app) {
-    return (
+    notFoundUI = (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-500 dark:text-gray-400 mb-4">Application not found.</p>
@@ -174,7 +176,7 @@ export default function ApplicationDetail() {
     }
   };
 
-  return (
+  let mainUI = (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Top Bar */}
       <div className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800">
