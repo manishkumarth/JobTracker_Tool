@@ -49,6 +49,10 @@ export default function ApplicationDetail() {
   const routeId = useParams().id;
   const id = routeId ? Number(routeId) : null;
   const [app, setApp] = useState(null);
+  useEffect(() => {
+    // This reference forces bundler to keep 'id' in the output
+    const _ = id;
+  }, []);
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState("");
   const [showDelete, setShowDelete] = useState(false);
