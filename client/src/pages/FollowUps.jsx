@@ -194,17 +194,35 @@ export default function FollowUps() {
           </button>
         </div>
       </div>
-      {/* Calendar mobile wrapper - hidden on large screens */}
+
+      {/* Calendar modal */}
       {showCalendar && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-zxl z-50 hidden lg:hidden">
-          <div className="fixed inset-0 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md p-6">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Follow-up Calendar</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Calendar view is available in the mobile app.</p>
-              <button onClick={() => setShowCalendar(false)} className="btn btn-primary w-full mt-4">
-                Close
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Follow-up Calendar
+              </h2>
+              <button
+                onClick={() => setShowCalendar(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
+
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Full calendar view is coming soon. For now you can filter by Overdue / Today / Upcoming using the tabs above.
+            </p>
+
+            <button
+              onClick={() => setShowCalendar(false)}
+              className="btn btn-primary w-full"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
@@ -214,11 +232,10 @@ export default function FollowUps() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              tab === t.key
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.key
                 ? "bg-brand-600 text-white shadow-md"
                 : "bg-white border border-color text-secondary hover:bg-tertiary"
-            }`}
+              }`}
           >
             {t.label}
             <span className={`badge text-xs ${tab === t.key ? "bg-white/20 text-white" : t.badgeClass}`}>
@@ -360,13 +377,12 @@ export default function FollowUps() {
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span className={`badge ${TYPE_BADGE[f.type] || "badge-neutral"}`}>{f.type}</span>
                           <span
-                            className={`text-xs font-medium ${
-                              category === "overdue"
+                            className={`text-xs font-medium ${category === "overdue"
                                 ? "text-danger"
                                 : category === "today"
                                   ? "text-warning"
                                   : "text-info"
-                            }`}
+                              }`}
                           >
                             {new Date(f.date).toLocaleString(undefined, {
                               month: "short",

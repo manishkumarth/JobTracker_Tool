@@ -307,14 +307,32 @@ router.post("/bulk/send-followups", requireFeature("autoFollowUp"), async (req, 
   }
 });
 
-// POST /api/applications/bulk/delete  -> bulk delete
+// POST /api/applications/bulk/delete
 router.post("/bulk/delete", async (req, res) => {
   try {
     const { ids } = req.body;
     if (!ids?.length) return res.status(400).json({ message: "ids are required" });
 
-    const result = await Application.deleteMany({ _id: { $in: ids }, owner: req.userId });
-    await logUserEvent(req.authUser, "activity", `Deleted ${result.deletedCount} application(s)`, {}, req);
+    const result = await Application.deleteMany({
+      _id: { $in: ids },
+      owner: req.userId,
+    });
+
+    // Cascade: remove related follow-ups
+    const FollowUp = (await import("../models/FollowUp.js")).default;
+    await FollowUp.deleteMany({
+      application: { $in: ids },
+      owner: req.userId,
+    });
+
+    await logUserEvent(
+      req.authUser,
+      "activity",
+      `Deleted ${result.deletedCount} application(s)`,
+      {},
+      req
+    );
+
     res.json({ deleted: result.deletedCount });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -442,9 +460,46 @@ router.post("/:id/match-score", async (req, res) => {
 
 // DELETE /api/applications/:id
 router.delete("/:id", async (req, res) => {
-  const application = await Application.findOneAndDelete({ _id: req.params.id, owner: req.userId });
-  if (!application) return res.status(404).json({ message: "Not found" });
-  res.json({ message: "Deleted" });
+  try {
+    const application = await Application.findOneAndDelete({
+      _id: req.params.id,
+      owner: req.userId,
+    });
+    if (!application) return res.status(404).json({ message: "Not found" });
+
+    // Cascade: remove related follow-ups
+    const FollowUp = (await import("../models/FollowUp.js")).default;
+    await FollowUp.deleteMany({ application: application._id, owner: req.userId });
+
+    // Optional: also clean related interviews / calls if you want
+    // const Interview = (await import("../models/Interview.js")).default;
+    // await Interview.deleteMany({ application: application._id, owner: req.userId });
+
+    await logUserEvent(
+      req.authUser,
+      "activity",
+      `Deleted application: ${application.jobTitle}`,
+      { applicationId: application._id },
+      req
+    );
+
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Temporary cleanup route (remove after running once)
+router.post("/cleanup-orphaned-followups", async (req, res) => {
+  const FollowUp = (await import("../models/FollowUp.js")).default;
+  const result = await FollowUp.deleteMany({
+    owner: req.userId,
+    $or: [
+      { application: null },
+      { application: { $exists: false } },
+    ],
+  });
+  res.json({ deleted: result.deletedCount });
 });
 
 export default router;
