@@ -7,28 +7,30 @@ import {
   Alert,
   RefreshControl,
   ScrollView,
+  Switch,
 } from "react-native";
-import { useState, useCallback, useMemo } from "react";
-import {
-  listFollowUps,
-  completeFollowUp,
-  cancelFollowUp,
-  sendFollowUpEmail,
-  deleteFollowUp,
-} from "../../api/followups";
-import { bulkSendFollowUps } from "../../api/applications";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useTheme } from "../../context/ThemeContext";
 import { useFocusEffect, router } from "expo-router";
-import { useAuth } from "../../context/AuthContext";
-import { updateFeature } from "../../api/settings";
+import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
+import { listFollowUps, sendFollowUpEmail, createFollowUp, deleteFollowUp } from "../api/followups";
+import { bulkSendFollowUps } from "../api/applications";
+import { updateFeature } from "../api/settings";
 
 const TABS = [
-  { key: "overdue", label: "Overdue" },
-  { key: "today", label: "Today" },
-  { key: "upcoming", label: "Upcoming" },
-  { key: "all", label: "All" },
+  { key: "overdue", label: "Overdue", badgeClass: "overdue" },
+  { key: "today", label: "Today", badgeClass: "today" },
+  { key: "upcoming", label: "Upcoming", badgeClass: "upcoming" },
+  { key: "all", label: "All", badgeClass: "all" },
 ];
+
+const TYPE_BADGE = {
+  "Email Follow-up": "primary",
+  email: "primary",
+  call: "success",
+  other: "neutral",
+};
 
 function getDueCategory(dateStr) {
   if (!dateStr) return "upcoming";
@@ -55,11 +57,13 @@ export default function FollowUps() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState("");
-  const [sendingId, setSendingId] = useState(null);
-  const [autoFollowUp, setAutoFollowUp] = useState(user?.features?.autoFollowUp ?? true);
+  const [autoSend, setAutoSend] = useState(user?.features?.autoFollowUp ?? true);
+  const [sendingIds, setSendingIds] = useState([]);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
 
-  const load = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
+  const load = async () => {
+    if (refreshing) setRefreshing(true);
     else setLoading(true);
     setErr("");
     try {
@@ -68,22 +72,12 @@ export default function FollowUps() {
       setItems(list);
       // Refresh the flag from the latest user record
       const fresh = user?.features?.autoFollowUp;
-      if (fresh !== undefined) setAutoFollowUp(fresh);
+      if (fresh !== undefined) setAutoSend(fresh);
     } catch (e) {
       setErr(e?.response?.data?.message || e.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
-    }
-  };
-
-  const toggleAutoFollowUp = async (v) => {
-    setAutoFollowUp(v);
-    try {
-      await updateFeature("autoFollowUp", v);
-    } catch (e) {
-      setAutoFollowUp(!v);
-      Alert.alert("Error", e?.response?.data?.message || "Could not update auto follow-ups");
     }
   };
 
@@ -106,55 +100,83 @@ export default function FollowUps() {
     return c;
   }, [items]);
 
-  const onSend = async (id) => {
-    if (!user?.gmailConnected) {
-      Alert.alert("Gmail required", "Connect Gmail in Profile first.");
-      return;
-    }
-    setSendingId(id);
+  const pendingItems = items.filter((f) => !f.emailSent);
+  const allPendingSelected = pendingItems.length > 0 && pendingItems.every((f) => selectedIds.includes(f._id));
+
+  const toggleAutoSend = async (v) => {
+    setAutoSend(v);
     try {
-      await sendFollowUpEmail(id);
-      Alert.alert("Sent", "Follow-up email sent");
-      await load();
+      await updateFeature("autoFollowUp", v);
     } catch (e) {
-      Alert.alert("Error", e?.response?.data?.message || e.message);
-    } finally {
-      setSendingId(null);
+      setAutoSend(!v);
+      Alert.alert("Error", e?.response?.data?.message || "Could not update auto follow-ups");
     }
   };
 
-  const onAutoSendAll = () => {
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAllPending = () => {
+    if (allPendingSelected) setSelectedIds([]);
+    else setSelectedIds(pendingItems.map((f) => f._id));
+  };
+
+  const onSendOne = async (id) => {
     if (!user?.gmailConnected) {
       Alert.alert("Gmail required", "Connect Gmail in Profile first.");
       return;
     }
-    const pending = items.filter((p) => !p.emailSent && p.status !== "COMPLETED" && p.status !== "CANCELLED");
-    if (!pending.length) {
-      Alert.alert("Nothing to send", "No pending follow-ups");
-      return;
+    setSendingIds((prev) => [...prev, id]);
+    try {
+      await sendFollowUpEmail(id);
+      setItems((prev) =>
+        prev.map((f) =>
+          f._id === id ? { ...f, emailSent: true, status: "Completed" } : f
+        )
+      );
+      setSelectedIds((prev) => prev.filter((i) => i !== id));
+      Alert.alert("Sent", "Follow-up email sent");
+    } catch (e) {
+      if (e?.response?.status === 409) {
+        setItems((prev) =>
+          prev.map((f) =>
+            f._id === id ? { ...f, emailSent: true } : f
+          )
+        );
+      }
+      Alert.alert("Error", e?.response?.data?.message || "Failed to send follow-up");
+    } finally {
+      setSendingIds((prev) => prev.filter((i) => i !== id));
     }
-    Alert.alert("Auto send", `Send AI follow-up to ${pending.length} pending?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Send all",
-        onPress: async () => {
-          try {
-            const appIds = pending.map((p) => p.application?._id || p.application).filter(Boolean);
-            if (appIds.length) {
-              await bulkSendFollowUps(appIds);
-            } else {
-              for (const p of pending) {
-                await sendFollowUpEmail(p._id);
-              }
-            }
-            Alert.alert("Done", "Follow-ups sent");
-            await load();
-          } catch (e) {
-            Alert.alert("Error", e?.response?.data?.message || e.message);
-          }
-        },
-      },
-    ]);
+  };
+
+  const onSendSelected = async () => {
+    const targets = autoSend ? pendingItems.map((f) => f._id) : selectedIds;
+    if (!targets.length) {
+      return Alert.error(autoSend ? "No unsent follow-ups" : "Select at least one follow-up");
+    }
+    if (!user?.gmailConnected) return;
+    setBulkSending(true);
+    let ok = 0;
+    for (const id of targets) {
+      try {
+        await sendFollowUpEmail(id);
+        setItems((prev) =>
+          prev.map((f) =>
+            f._id === id ? { ...f, emailSent: true } : f
+          )
+        );
+        ok++;
+      } catch {
+        /* already sent or failed */
+      }
+    }
+    setBulkSending(false);
+    setSelectedIds([]);
+    if (ok > 0)
+      Alert.success(`${ok} follow-up email${ok > 1 ? "s" : ""} sent`);
+    else Alert.error("No follow-ups could be sent");
   };
 
   if (loading && !refreshing) {
@@ -165,81 +187,139 @@ export default function FollowUps() {
     );
   }
 
+  const appEmailOf = (f) =>
+    (f.application && typeof f.application === "object"
+      ? f.application.hrEmail || ""
+      : "") || f.hrEmail || "";
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      {!autoFollowUp ? (
-        <View
-          style={{
-            backgroundColor: "#fef3c7",
-            borderColor: "#f59e0b",
-            borderWidth: 1,
-            borderRadius: 8,
-            padding: 10,
-            marginHorizontal: 16,
-            gap: 4,
-          }}
-        >
-          <Text style={{ color: "#92400e", fontWeight: "600", fontSize: 13 }}>
-            Auto follow-ups are disabled
-          </Text>
-          <Text style={{ color: "#92400e", fontSize: 12 }}>
-            New follow-ups won't be auto-sent. Enable them in Profile → Follow-ups.
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16 }}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ color: colors.primary }}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={{ fontSize: 18, fontWeight: "700", color: colors.text }}>Follow-ups</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <TouchableOpacity onPress={() => toggleAutoFollowUp(!autoFollowUp)}>
-            <Text
-              style={{
-                color: autoFollowUp ? "#059669" : colors.textMuted,
-                fontWeight: "600",
-                fontSize: 12,
-              }}
-            >
-              {autoFollowUp ? "Auto follow-ups ON" : "Auto follow-ups OFF"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onAutoSendAll}>
-            <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
-              Auto send
-            </Text>
-          </TouchableOpacity>
+      {/* Header */}
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 12,
+          padding: 14,
+          marginHorizontal: 16,
+          marginBottom: 8,
+        }}
+      >
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ fontSize: 18, fontWeight: "700", color: colors.text }}>Follow-ups</Text>
+          <Switch
+            checked={autoSend}
+            onValueChange={toggleAutoSend}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor={autoSend ? colors.primary : "#cbd5e1"}
+          />
+          <Text style={{ color: autoSend ? colors.primary : colors.textMuted, fontSize: 12 }}>
+            {autoSend ? "Auto send" : "Manual"}
+          </Switch>
         </View>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 8 }}
+      {/* Tabs */}
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 12,
+          padding: 8,
+          marginHorizontal: 16,
+          marginBottom: 8,
+        }}
       >
-        {TABS.map((t) => (
-          <TouchableOpacity
-            key={t.key}
-            onPress={() => setTab(t.key)}
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: tab === t.key ? colors.primary : colors.border,
-              backgroundColor: tab === t.key ? colors.primary + "18" : colors.card,
-            }}
-          >
-            <Text style={{ color: tab === t.key ? colors.primary : colors.text, fontWeight: "600", fontSize: 13 }}>
-              {t.label} ({counts[t.key] || 0})
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+        <View style={{ flexDirection: "row", gap: 2 }}>
+          {TABS.map((t) => (
+            <TouchableOpacity
+              key={t.key}
+              onPress={() => setTab(t.key)}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: tab === t.key ? colors.primary : colors.border,
+                backgroundColor: tab === t.key ? colors.primary + "18" : colors.card,
+              }}
+            >
+              <Text style={{ color: tab === t.key ? colors.primary : colors.text, fontWeight: "600", fontSize: 12 }}>
+                {t.label}
+                <span style={{ marginLeft: 4, color: colors.textMuted, fontSize: 10 }}>
+                  {counts[t.key] || 0}
+                </span>
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
 
-      {err ? <Text style={{ color: colors.danger, paddingHorizontal: 16 }}>{err}</Text> : null}
+      {/* Error */}
+      {err ? (
+        <Text style={{ color: colors.danger, paddingHorizontal: 16, marginBottom: 8 }}>
+          {err}
+        </Text>
+      ) : null}
 
+      {/* Send controls */}
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 12,
+          padding: 12,
+          marginHorizontal: 16,
+          marginBottom: 8,
+        }}
+      >
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+            {selectedIds.length} selected
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TouchableOpacity
+              onPress={toggleSelectAllPending}
+              disabled={pendingItems.length === 0}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: pendingItems.length === 0 ? colors.border : colors.primary,
+                backgroundColor: pendingItems.length === 0 ? colors.card : colors.primary + "18",
+              }}
+            >
+              <Text style={{ color: pendingItems.length === 0 ? colors.textMuted : colors.primary, fontSize: 11 }}>
+                Select all pending
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onSendSelected}
+              disabled={bulkSending || pendingItems.length === 0}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 20,
+                backgroundColor: bulkSending ? colors.primary + "99" : colors.primary,
+              }}
+            >
+              {bulkSending ? (
+                <Text style={{ color: "#fff", fontWeight: "600" }}>Sending...</Text>
+              ) : (
+                <Text style={{ color: "#fff", fontWeight: "600" }}>
+                  {autoSend ? "Send all unsent" : "Send selected"}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      {/* Filtered list */}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item._id}
@@ -251,117 +331,108 @@ export default function FollowUps() {
           const sent = item.emailSent || item.status === "COMPLETED";
           const due = dueDateOf(item);
           const cat = getDueCategory(due);
-          const catColor = cat === "overdue" ? "#dc2626" : cat === "today" ? "#d97706" : colors.textMuted;
+          const catColor =
+            cat === "overdue"
+              ? "#dc2626"
+              : cat === "today"
+              ? "#d97706"
+              : colors.textMuted;
           const app = item.application && typeof item.application === "object" ? item.application : null;
           const hrEmail = app?.hrEmail || item.hrEmail || "";
           const hrName = app?.hrName || item.hrName || "";
+          const isSending = sendingIds.includes(item._id);
+          const isSelected = selectedIds.includes(item._id);
           return (
             <View
               style={{
                 borderWidth: 1,
                 borderColor: colors.border,
                 borderRadius: 10,
-                padding: 14,
-                gap: 7,
+                padding: 12,
+                gap: 6,
                 backgroundColor: colors.card,
               }}
             >
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                <Text style={{ fontWeight: "700", color: colors.text, flexShrink: 1 }}>
-                  {item.type || "Follow-up"}
-                </Text>
-                {item.type && item.type !== "General" ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600" }}>
-                    · {item.type}
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ flexDirection: "column", gap: 2 }}>
+                  <Text style={{ fontWeight: "600", color: colors.text, flexShrink: 1 }}>
+                    {item.type || "Follow-up"}
                   </Text>
-                ) : null}
-                {sent ? (
-                  <Text style={{ color: colors.success, fontSize: 11, fontWeight: "600" }}>✓ Completed</Text>
-                ) : null}
+                  {item.type && item.type !== "General" && (
+                    <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "600" }}>
+                      · {item.type}
+                    </Text>
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ fontSize: 13, color: colors.text }}>
+                    {app?.jobTitle || item.application || "Application"}
+                    {app?.companyName ? ` — ${app.companyName}` : ""}
+                  </Text>
+                  {app?.location ? (
+                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                      {app.location}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={{ flexShrink: 0 }}>
+                  <Text style={{ color: catColor, fontSize: 11, fontWeight: "600" }}>
+                    Due: {due ? new Date(due).toLocaleString() : "—"} ({cat})
+                  </Text>
+                </View>
               </View>
-              <Text style={{ fontSize: 13, color: colors.text }}>
-                {app?.jobTitle || item.application || "Application"}
-                {app?.companyName ? ` — ${app.companyName}` : ""}
-              </Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                <Text style={{ color: catColor, fontSize: 12, fontWeight: "600" }}>
-                  Due: {due ? new Date(due).toLocaleDateString() : "—"} ({cat})
-                </Text>
-                {due ? <Text style={{ color: colors.textMuted, fontSize: 11 }}>· {new Date(due).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
+              <hr style={{ borderColor: "#e5e7eb", margin: "8px 0" }} />
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                {hrEmail ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 10 }}>
+                    📧 {hrName ? hrName + " · " : ""}{hrEmail} {sent ? "· email sent" : ""}
+                  </Text>
+                ) : (
+                  <Text style={{ color: colors.textMuted, fontSize: 10 }}>
+                    No recruiter email on file {sent ? "· email sent" : ""}
+                  </Text>
+                )}
+                {item.note && !sent && !isSending && (
+                  <Text style={{ color: colors.textMuted, fontSize: 10 }}>
+                    · {item.note}
+                  </Text>
+                )}
               </View>
-              {hrEmail ? (
-                <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                  📧 {hrName ? hrName + " · " : ""}{hrEmail} {sent ? "· email sent" : ""}
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 8 }}>
+              <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  disabled={sent || isSending}
+                  onChange={() => toggleSelect(item._id)}
+                  style={{ width: 18, height: 18, accentColor: colors.primary }}
+                />
+                <Text style={{ color: colors.textMuted, fontSize: 10 }}>
+                  {sent ? "Sent" : "Send"}
                 </Text>
-              ) : (
-                <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                  No recruiter email on file {sent ? "· email sent" : ""}
-                </Text>
-              )}
-              {item.note ? <Text style={{ color: colors.text, fontSize: 13 }}>{item.note}</Text> : null}
-              {app?._id ? (
-                <TouchableOpacity onPress={() => router.push(`/applications/${app._id}`)}>
-                  <Text style={{ color: colors.primary, fontSize: 12 }}>Open application →</Text>
+              </View>
+              {!sent && !isSending ? (
+                <TouchableOpacity
+                  onPress={() => onSendOne(item._id)}
+                  style={{
+                    padding: 6,
+                    borderRadius: 6,
+                    backgroundColor: colors.primary + "18",
+                    borderWidth: 1,
+                    borderColor: colors.primary,
+                  }}
+                >
+                  <Text style={{ color: colors.primary, fontSize: 10 }}>
+                    Send
+                  </Text>
                 </TouchableOpacity>
               ) : null}
-              <View style={{ flexDirection: "row", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
-                {!sent ? (
-                  <TouchableOpacity onPress={() => onSend(item._id)} disabled={sendingId === item._id}>
-                    {sendingId === item._id ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Text style={{ color: colors.primary, fontWeight: "600" }}>Send email</Text>
-                    )}
-                  </TouchableOpacity>
-                ) : null}
-                {item.status !== "COMPLETED" ? (
-                  <TouchableOpacity
-                    onPress={async () => {
-                      try {
-                        await completeFollowUp(item._id);
-                        await load();
-                      } catch (e) {
-                        Alert.alert("Error", e?.response?.data?.message || e.message);
-                      }
-                    }}
-                  >
-                    <Text style={{ color: colors.success || "#059669" }}>Complete</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {item.status !== "CANCELLED" && item.status !== "COMPLETED" ? (
-                  <TouchableOpacity
-                    onPress={async () => {
-                      try {
-                        await cancelFollowUp(item._id);
-                        await load();
-                      } catch (e) {
-                        Alert.alert("Error", e?.response?.data?.message || e.message);
-                      }
-                    }}
-                  >
-                    <Text style={{ color: colors.danger }}>Cancel</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {app?._id ? (
-                  <TouchableOpacity
-                    onPress={async () => {
-                      try {
-                        await deleteFollowUp(item._id);
-                        await load();
-                      } catch (e) {
-                        Alert.alert("Error", e?.response?.data?.message || e.message);
-                      }
-                    }}
-                  >
-                    <Text style={{ color: colors.danger, fontSize: 11 }}>Delete</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
             </View>
           );
         }}
         ListEmptyComponent={
-          <Text style={{ color: colors.textMuted, textAlign: "center", padding: 24 }}>
+          <Text style={{ color: colors.textMuted, textAlign: "center", padding: 30 }}>
             No follow-ups in this tab
           </Text>
         }

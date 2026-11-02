@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { getApplication, changeStatus, addNote, deleteApplication, APPLICATION_STATUSES } from "../api/applications.js";
-import { createFollowUp } from "../api/followups.js";
+import { createFollowUp, deleteFollowUp } from "../api/followups.js";
 import { createInterview } from "../api/interviews.js";
 import { createCall } from "../api/calls.js";
 import { generateFollowUpEmail } from "../api/ai.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import AIEmailGenerator from "../components/AIEmailGenerator.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const CALL_RESULTS = ["Connected", "No Answer", "Busy", "Callback Requested", "Wrong Number", "Not Interested", "Interested", "Asked to Email", "Interview Discussion", "Other"];
 const INTERVIEW_TYPES = ["Phone", "Video", "Technical", "HR", "Managerial", "Assessment", "On-site"];
@@ -57,7 +58,9 @@ export default function ApplicationDetail() {
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [descExpanded, setDescExpanded] = useState(false);
 
-  const load = () => {
+  const [followUpDisabled, setFollowUpDisabled] = useState(false);
+  const [followUpMenu, setFollowUpMenu] = useState(false);
+  const [menuItem, setMenuItem] = useState("email");
     getApplication(id).then(setApp).catch(() => toast.error("Failed to load application")).finally(() => setLoading(false));
   };
   useEffect(load, [id]);
@@ -201,6 +204,18 @@ export default function ApplicationDetail() {
                 {APPLICATION_STATUSES.map((s) => (
                   <option key={s} value={s}>{s.replaceAll("_", " ")}</option>
                 ))}
+              </select>
+              <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </div>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${followUpDisabled ? "bg-yellow-500" : "bg-gray-400"}"></span>
+              <select
+                value={followUpDisabled ? "true" : "false"}
+                onChange={(e) => setFollowUpDisabled(e.target.value === "true")}
+                className="appearance-none bg-gray-100 dark:bg-gray-800 border-0 rounded-xl pl-8 pr-8 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-brand-500/40 cursor-pointer"
+              >
+                <option value="false">Follow-ups enabled</option>
+                <option value="true">Follow-ups disabled</option>
               </select>
               <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </div>
@@ -448,6 +463,65 @@ export default function ApplicationDetail() {
                   </button>
                 </div>
               )}
+
+              {/* Follow-up action menu */}
+              <div className="mt-4">
+                <button
+                  onClick={() => setFollowUpMenu(true)}
+                  className="flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 underline"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  Follow-up ▾
+                </button>
+                {followUpMenu && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-lg z-50">
+                    <div className="text-sm font-medium text-gray-900 dark:text-white mb-3">Follow-up for {app.jobTitle}</div>
+                    {followUpDisabled ? (
+                      <div className="text-xs text-yellow-600 dark:text-yellow-400 mb-4 block">Follow-ups are currently disabled for this job.</div>
+                    ) : null}
+                    <div className="space-y-2">
+                      {followUpDisabled ? null : (
+                        <div
+                          onClick={() => openEmailFollowUp()}
+                          style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", cursor: "pointer" }}
+                        >
+                          <span style={{ color: "#111827", fontSize: 14 }}>Follow-up Email</span>
+                        </div>
+                      )}
+                      {followUpDisabled ? null : (
+                        <div
+                          onClick={() => openInterviewFollowUp()}
+                          style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", cursor: "pointer" }}
+                        >
+                          <span style={{ color: "#111827", fontSize: 14 }}>Follow-up Interview</span>
+                        </div>
+                      )}
+                      {followUpDisabled ? null : (
+                        <div
+                          onClick={() => openCustomFollowUp()}
+                          style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", cursor: "pointer" }}
+                        >
+                          <span style={{ color: "#111827", fontSize: 14 }}>Add more (custom)</span>
+                        </div>
+                      )}
+                      <div
+                        onClick={() => toggleFollowUpDisabled()}
+                        style={{ padding: 12, alignItems: "center", marginTop: 4, cursor: "pointer" }}
+                      >
+                        <span style={{ color: followUpDisabled ? "#dc2626" : "#059669", fontWeight: "600" }}>
+                          {followUpDisabled ? "Enable follow-ups for this job" : "Disable follow-ups for this job"}
+                        </span>
+                      </div>
+                      <div
+                        onClick={() => setFollowUpMenu(false)}
+                        style={{ padding: 12, alignItems: "center", marginTop: 4, cursor: "pointer" }}
+                      >
+                        <span style={{ color: "brand-600", fontWeight: "600" }}>Cancel</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -585,4 +659,30 @@ export default function ApplicationDetail() {
       )}
     </div>
   );
+
+const openEmailFollowUp = () => {
+  if (!followUpDisabled && requireGmail()) {
+    generateFollowUp();
+    setFollowUpMenu(false);
+  }
+};
+
+const openInterviewFollowUp = () => {
+  if (!followUpDisabled) {
+    setFollowUpMenu(false);
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    setInterviewForm({ date: d.toISOString().split("T")[0] + "T11:00", round: "Round 1", interviewType: "Video", meetingUrl: "", interviewer: "" });
+  }
+};
+
+const openCustomFollowUp = () => {
+  if (!followUpDisabled) {
+    setFollowUpMenu(false);
+    setFollowUpForm({ date: defaultFollowUpDate(), type: "General", note: "" });
+  }
+};
+
+const toggleFollowUpDisabled = () => {
+  setFollowUpDisabled((prev) => !prev);
 }

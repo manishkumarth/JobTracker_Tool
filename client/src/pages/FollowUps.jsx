@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { listFollowUps, sendFollowUpEmail, updateFollowUp } from "../api/followups.js";
+import { listFollowUps, sendFollowUpEmail, createFollowUp, deleteFollowUp } from "../api/followups.js";
 import EmptyState from "../components/EmptyState.jsx";
 import { useGmailGuard } from "../context/GmailContext.jsx";
+import { useNavigate } from "react-router-dom";
 
 const TABS = [
   { key: "overdue", label: "Overdue", badgeClass: "badge-danger" },
@@ -41,13 +42,15 @@ function toLocalInputValue(dateStr) {
 
 export default function FollowUps() {
   const { requireGmail } = useGmailGuard();
+  const navigate = useNavigate();
   const [tab, setTab] = useState("today");
   const [followUps, setFollowUps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState([]);
-  const [autoSend, setAutoSend] = useState(false);
+  const [autoSend, setAutoSend] = useState(true); // default ON
   const [sendingIds, setSendingIds] = useState([]);
   const [bulkSending, setBulkSending] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
 
   // Inline edit state
   const [editingId, setEditingId] = useState(null);
@@ -184,7 +187,27 @@ export default function FollowUps() {
           <h1 className="page-title">Follow-ups</h1>
           <p className="page-subtitle">Track and send your application follow-ups</p>
         </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowCalendar(true)} className="btn btn-ghost text-sm hover:text-accent flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            Calendar
+          </button>
+        </div>
       </div>
+      {/* Calendar mobile wrapper - hidden on large screens */}
+      {showCalendar && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-zxl z-50 hidden lg:hidden">
+          <div className="fixed inset-0 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md p-6">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Follow-up Calendar</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Calendar view is available in the mobile app.</p>
+              <button onClick={() => setShowCalendar(false)} className="btn btn-primary w-full mt-4">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {TABS.map((t) => (
@@ -220,12 +243,12 @@ export default function FollowUps() {
         <label className="flex items-center gap-2 cursor-pointer shrink-0">
           <input
             type="checkbox"
-            checked={allPendingSelected}
-            onChange={toggleSelectAllPending}
+            checked={!autoSend}
+            onChange={(e) => setAutoSend(e.target.checked)}
             disabled={pendingItems.length === 0}
             className="w-4 h-4 rounded border-border-strong text-accent focus:ring-accent disabled:opacity-40"
           />
-          <span className="text-sm text-muted">Select all pending ({pendingItems.length})</span>
+          <span className="text-sm text-muted">Manual select</span>
         </label>
 
         <div className="sm:ml-auto flex items-center gap-2">

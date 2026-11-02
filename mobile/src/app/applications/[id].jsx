@@ -141,6 +141,48 @@ export default function ApplicationDetail() {
     } catch {}
   };
 
+  const submitFollowUp = async (e) => {
+    e.preventDefault();
+    if (!followUpForm.date) return Alert.error("Pick a date");
+    try {
+      await createFollowUp({ application: id, ...followUpForm });
+      Alert.success("Follow-up scheduled");
+      await load();
+    } catch {
+      Alert.alert("Error", "Failed to schedule follow-up");
+    }
+  };
+
+  const submitInterview = async (e) => {
+    e.preventDefault();
+    if (!interviewForm.date) return Alert.error("Pick a date/time");
+    try {
+      await createInterview({ application: id, ...interviewForm });
+      Alert.success("Interview scheduled");
+      await load();
+    } catch {
+      Alert.alert("Error", "Failed to schedule interview");
+    }
+  };
+
+  const submitCall = async (e) => {
+    e.preventDefault();
+    try {
+      await createCall({
+        application: id,
+        contact: app?.contact?._id,
+        company: app?.company?._id,
+        callDate: new Date(),
+        ...callForm,
+        durationMinutes: Number(callForm.durationMinutes) || 0,
+      });
+      Alert.success("Call logged");
+      await load();
+    } catch {
+      Alert.alert("Error", "Failed to log call");
+    }
+  };
+
   const autoDraftAndSend = async () => {
     if (!user?.gmailConnected) {
       Alert.alert("Gmail required", "Connect Gmail in Profile first.");
