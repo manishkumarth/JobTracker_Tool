@@ -25,7 +25,7 @@ const Protected = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
   return user ? children : <Navigate to="/login" replace />;
-};
+}; 
 
 export default function App() {
   return (
@@ -34,7 +34,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-
+ 
         <Route
           element={
             <Protected>
