@@ -72,7 +72,6 @@ app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/cron", cronRoutes);
 app.use("/api/ext", extensionRoutes);
-app.use("/api/cleanfolluptemp",applicationRoutes.cleanFollowupTemp);
 
 app.get("/", (req, res) => res.send("Job Application CRM API running"));
 
