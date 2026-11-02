@@ -2,16 +2,26 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { getApplication, changeStatus, addNote, deleteApplication, APPLICATION_STATUSES } from "../api/applications.js";
-import { createFollowUp, deleteFollowUp } from "../api/followups.js";
+import { createFollowUp } from "../api/followups.js";
 import { createInterview } from "../api/interviews.js";
 import { createCall } from "../api/calls.js";
 import { generateFollowUpEmail } from "../api/ai.js";
-import StatusBadge from "../components/StatusBadge.jsx";
 import AIEmailGenerator from "../components/AIEmailGenerator.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { useGmailGuard } from "../context/GmailContext.jsx";
-  
-const CALL_RESULTS = ["Connected", "No Answer", "Busy", "Callback Requested", "Wrong Number", "Not Interested", "Interested", "Asked to Email", "Interview Discussion", "Other"];
+
+const CALL_RESULTS = [
+  "Connected",
+  "No Answer",
+  "Busy",
+  "Callback Requested",
+  "Wrong Number",
+  "Not Interested",
+  "Interested",
+  "Asked to Email",
+  "Interview Discussion",
+  "Other",
+];
 const INTERVIEW_TYPES = ["Phone", "Video", "Technical", "HR", "Managerial", "Assessment", "On-site"];
 const ROUNDS = ["Round 1", "Round 2", "Round 3", "Final"];
 
@@ -28,82 +38,104 @@ const STATUS_DOT_COLORS = {
   ghosted: "bg-gray-400",
 };
 
-
 function defaultFollowUpDate() {
   const d = new Date();
   d.setDate(d.getDate() + 3);
   return d.toISOString().split("T")[0];
 }
+
 function defaultFollowUpDateTime() {
   const d = new Date();
   d.setDate(d.getDate() + 3);
   d.setHours(11, 0, 0, 0);
-  // datetime-local format: YYYY-MM-DDTHH:mm
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function ApplicationDetail() {
   const navigate = useNavigate();
-  // Keep id in bundler output - reference it multiple ways
-  const routeId = useParams().id;
+  const { id: routeId } = useParams();
   const id = routeId ? Number(routeId) : null;
-  const idString = id ? String(id) : "";
-  // Reference id in effect deps and inline to force bundler tracking
-  useEffect(() => {
-    // Force bundler to track 'id' in module scope
-    const _ = id;
-    const _s = idString;
-  }, []);
+
+  const { requireGmail } = useGmailGuard();
+
   const [app, setApp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState("");
   const [showDelete, setShowDelete] = useState(false);
-  const [followUpForm, setFollowUpForm] = useState({ date: defaultFollowUpDate(), type: "Email Follow-up", note: "" });
-  const [interviewForm, setInterviewForm] = useState({ date: "", round: "Round 1", interviewType: "Video", meetingUrl: "", interviewer: "" });
-  const [callForm, setCallForm] = useState({ result: "Connected", notes: "", durationMinutes: "" });
+  const [followUpForm, setFollowUpForm] = useState({
+    date: defaultFollowUpDate(),
+    type: "Email Follow-up",
+    note: "",
+  });
+  const [interviewForm, setInterviewForm] = useState({
+    date: "",
+    round: "Round 1",
+    interviewType: "Video",
+    meetingUrl: "",
+    interviewer: "",
+  });
+  const [callForm, setCallForm] = useState({
+    result: "Connected",
+    notes: "",
+    durationMinutes: "",
+  });
   const [genFollowUp, setGenFollowUp] = useState(null);
   const [genBusy, setGenBusy] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [descExpanded, setDescExpanded] = useState(false);
-
   const [followUpDisabled, setFollowUpDisabled] = useState(false);
   const [followUpMenu, setFollowUpMenu] = useState(false);
-  const [menuItem, setMenuItem] = useState("email");
-    getApplication(id).then(setApp).catch(() => toast.error("Failed to load application")).finally(() => setLoading(false));
-  };
+
   const load = () => {
-    getApplication(id).then(setApp).catch(() => toast.error("Failed to load application")).finally(() => setLoading(false));
-};
-useEffect(load, [id]);
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    getApplication(id)
+      .then(setApp)
+      .catch(() => toast.error("Failed to load application"))
+      .finally(() => setLoading(false));
+  };
 
+  useEffect(() => {
+    load();
+  }, [id]);
 
-  let loadingUI = null;
+  // ---------- early returns ----------
   if (loading) {
-    loadingUI = (
+    return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="flex items-center gap-3 text-gray-400">
           <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
           </svg>
           <span className="text-sm">Loading application...</span>
         </div>
       </div>
     );
   }
-  let notFoundUI = null;
+
   if (!app) {
-    notFoundUI = (
+    return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-500 dark:text-gray-400 mb-4">Application not found.</p>
-          <Link to="/applications" className="text-brand-600 hover:text-brand-700 text-sm font-medium">Back to applications</Link>
+          <Link to="/applications" className="text-brand-600 hover:text-brand-700 text-sm font-medium">
+            Back to applications
+          </Link>
         </div>
       </div>
     );
   }
 
+  // ---------- handlers ----------
   const doStatusChange = async (status) => {
     try {
       const updated = await changeStatus(id, status);
@@ -132,7 +164,7 @@ useEffect(load, [id]);
     try {
       await createFollowUp({ application: id, ...followUpForm });
       toast.success("Follow-up scheduled");
-      setFollowUpForm({ date: "", type: "Email Follow-up", note: "" });
+      setFollowUpForm({ date: defaultFollowUpDate(), type: "Email Follow-up", note: "" });
       load();
     } catch {
       toast.error("Failed to schedule follow-up");
@@ -145,7 +177,13 @@ useEffect(load, [id]);
     try {
       await createInterview({ application: id, ...interviewForm });
       toast.success("Interview scheduled");
-      setInterviewForm({ date: "", round: "Round 1", interviewType: "Video", meetingUrl: "", interviewer: "" });
+      setInterviewForm({
+        date: "",
+        round: "Round 1",
+        interviewType: "Video",
+        meetingUrl: "",
+        interviewer: "",
+      });
       load();
     } catch {
       toast.error("Failed to schedule interview");
@@ -156,8 +194,12 @@ useEffect(load, [id]);
     e.preventDefault();
     try {
       await createCall({
-        application: id, contact: app.contact?._id, company: app.company?._id,
-        callDate: new Date(), ...callForm, durationMinutes: Number(callForm.durationMinutes) || 0,
+        application: id,
+        contact: app.contact?._id,
+        company: app.company?._id,
+        callDate: new Date(),
+        ...callForm,
+        durationMinutes: Number(callForm.durationMinutes) || 0,
       });
       toast.success("Call logged");
       setCallForm({ result: "Connected", notes: "", durationMinutes: "" });
@@ -189,7 +231,40 @@ useEffect(load, [id]);
     }
   };
 
-  let mainUI = (
+  // Follow-up menu helpers (must stay inside the component)
+  const openEmailFollowUp = () => {
+    if (!followUpDisabled && requireGmail()) {
+      generateFollowUp();
+      setFollowUpMenu(false);
+    }
+  };
+
+  const openInterviewFollowUp = () => {
+    if (!followUpDisabled) {
+      setFollowUpMenu(false);
+      setInterviewForm({
+        date: defaultFollowUpDateTime(),
+        round: "Round 1",
+        interviewType: "Video",
+        meetingUrl: "",
+        interviewer: "",
+      });
+    }
+  };
+
+  const openCustomFollowUp = () => {
+    if (!followUpDisabled) {
+      setFollowUpMenu(false);
+      setFollowUpForm({ date: defaultFollowUpDate(), type: "General", note: "" });
+    }
+  };
+
+  const toggleFollowUpDisabled = () => {
+    setFollowUpDisabled((prev) => !prev);
+  };
+
+  // ---------- main UI ----------
+  return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Top Bar */}
       <div className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800">
@@ -199,31 +274,55 @@ useEffect(load, [id]);
               to="/applications"
               className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
               Back
             </Link>
             <div className="h-5 w-px bg-gray-200 dark:bg-gray-700"></div>
             <div>
               <h1 className="text-lg font-bold text-gray-900 dark:text-white">{app.jobTitle}</h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{app.company?.name || app.companyName || "—"} · {app.location || "—"}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {app.company?.name || app.companyName || "—"} · {app.location || "—"}
+              </p>
             </div>
           </div>
+
           <div className="flex items-center gap-3">
+            {/* Status select */}
             <div className="relative">
-              <span className={`absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${STATUS_DOT_COLORS[app.status] || "bg-gray-400"}`}></span>
+              <span
+                className={`absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${
+                  STATUS_DOT_COLORS[app.status] || "bg-gray-400"
+                }`}
+              ></span>
               <select
                 value={app.status}
                 onChange={(e) => doStatusChange(e.target.value)}
                 className="appearance-none bg-gray-100 dark:bg-gray-800 border-0 rounded-xl pl-8 pr-8 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-brand-500/40 cursor-pointer"
               >
                 {APPLICATION_STATUSES.map((s) => (
-                  <option key={s} value={s}>{s.replaceAll("_", " ")}</option>
+                  <option key={s} value={s}>
+                    {s.replaceAll("_", " ")}
+                  </option>
                 ))}
               </select>
-              <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              <svg
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
+
+            {/* Follow-ups enabled / disabled */}
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: followUpDisabled ? "#f59e0b" : "#6b7280" }}></span>
+              <span
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full"
+                style={{ backgroundColor: followUpDisabled ? "#f59e0b" : "#6b7280" }}
+              ></span>
               <select
                 value={followUpDisabled ? "true" : "false"}
                 onChange={(e) => setFollowUpDisabled(e.target.value === "true")}
@@ -232,13 +331,28 @@ useEffect(load, [id]);
                 <option value="false">Follow-ups enabled</option>
                 <option value="true">Follow-ups disabled</option>
               </select>
-              <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              <svg
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
+
             <button
               onClick={() => setShowDelete(true)}
               className="inline-flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-2 rounded-xl transition-all"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
+              </svg>
               Delete
             </button>
           </div>
@@ -253,15 +367,26 @@ useEffect(load, [id]);
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
                   Job Details
                 </h2>
                 {app.matchScore != null && (
-                  <span className={`text-sm font-bold px-3 py-1 rounded-lg ${
-                    app.matchScore >= 80 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                    app.matchScore >= 60 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" :
-                    "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                  }`}>
+                  <span
+                    className={`text-sm font-bold px-3 py-1 rounded-lg ${
+                      app.matchScore >= 80
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        : app.matchScore >= 60
+                        ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                    }`}
+                  >
                     {app.matchScore}% match
                   </span>
                 )}
@@ -275,18 +400,23 @@ useEffect(load, [id]);
                   { label: "Salary", value: app.salary },
                   { label: "Experience", value: app.experienceRequired },
                   { label: "Priority", value: app.priority },
-                ].filter(f => f.value).map((field) => (
-                  <div key={field.label}>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">{field.label}</p>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{field.value}</p>
-                  </div>
-                ))}
+                ]
+                  .filter((f) => f.value)
+                  .map((field) => (
+                    <div key={field.label}>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">{field.label}</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{field.value}</p>
+                    </div>
+                  ))}
               </div>
 
               {app.requiredSkills?.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
                   {app.requiredSkills.map((s) => (
-                    <span key={s} className="text-xs font-medium bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 px-2.5 py-1 rounded-lg">
+                    <span
+                      key={s}
+                      className="text-xs font-medium bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 px-2.5 py-1 rounded-lg"
+                    >
                       {s}
                     </span>
                   ))}
@@ -300,7 +430,14 @@ useEffect(load, [id]);
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 mt-4 transition-colors"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                    />
+                  </svg>
                   Open job posting
                 </a>
               )}
@@ -311,11 +448,20 @@ useEffect(load, [id]);
                     onClick={() => setDescExpanded(!descExpanded)}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
                   >
-                    <svg className={`w-4 h-4 transition-transform ${descExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    <svg
+                      className={`w-4 h-4 transition-transform ${descExpanded ? "rotate-90" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
                     {descExpanded ? "Hide" : "View"} job description
                   </button>
                   {descExpanded && (
-                    <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap mt-3 leading-relaxed">{app.jobDescription}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap mt-3 leading-relaxed">
+                      {app.jobDescription}
+                    </p>
                   )}
                 </div>
               )}
@@ -324,7 +470,14 @@ useEffect(load, [id]);
             {/* HR / Recruiter Card */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
                 HR / Recruiter
               </h2>
               <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">{app.hrName || "—"}</p>
@@ -334,7 +487,14 @@ useEffect(load, [id]);
                     href={`mailto:${app.hrEmail}`}
                     className="inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-2 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition-colors"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                      />
+                    </svg>
                     {app.hrEmail}
                   </a>
                 )}
@@ -343,25 +503,50 @@ useEffect(load, [id]);
                     href={`tel:${app.hrPhone}`}
                     className="inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-2 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition-colors"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                      />
+                    </svg>
                     {app.hrPhone}
                   </a>
                 )}
                 {app.hrEmail && (
                   <button
-                    onClick={() => navigator.clipboard.writeText(app.hrEmail).then(() => toast.success("Email copied"))}
+                    onClick={() =>
+                      navigator.clipboard.writeText(app.hrEmail).then(() => toast.success("Email copied"))
+                    }
                     className="inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-2 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition-colors"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
                     Copy email
                   </button>
                 )}
                 {app.hrPhone && (
                   <button
-                    onClick={() => navigator.clipboard.writeText(app.hrPhone).then(() => toast.success("Phone copied"))}
+                    onClick={() =>
+                      navigator.clipboard.writeText(app.hrPhone).then(() => toast.success("Phone copied"))
+                    }
                     className="inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-2 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition-colors"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
                     Copy phone
                   </button>
                 )}
@@ -371,7 +556,14 @@ useEffect(load, [id]);
             {/* Timeline Card */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
                 Timeline
               </h2>
               {app.activity?.length === 0 ? (
@@ -382,12 +574,16 @@ useEffect(load, [id]);
                   <div className="space-y-4">
                     {[...app.activity].reverse().map((a, idx) => (
                       <div key={idx} className="relative flex gap-4">
-                        <div className={`relative z-10 w-3.5 h-3.5 rounded-full mt-1 shrink-0 border-2 border-white dark:border-gray-900 ${
-                          idx === 0 ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"
-                        }`}></div>
+                        <div
+                          className={`relative z-10 w-3.5 h-3.5 rounded-full mt-1 shrink-0 border-2 border-white dark:border-gray-900 ${
+                            idx === 0 ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"
+                          }`}
+                        ></div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-gray-900 dark:text-white">{a.message}</p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{new Date(a.at).toLocaleString()}</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                            {new Date(a.at).toLocaleString()}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -403,14 +599,31 @@ useEffect(load, [id]);
                 className="w-full flex items-center justify-between p-6 text-left"
               >
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    />
+                  </svg>
                   Notes
                   {app.notes?.length > 0 && (
-                    <span className="text-xs font-normal bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">{app.notes.length}</span>
+                    <span className="text-xs font-normal bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
+                      {app.notes.length}
+                    </span>
                   )}
                 </h2>
-                <svg className={`w-5 h-5 text-gray-400 transition-transform ${notesExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                <svg
+                  className={`w-5 h-5 text-gray-400 transition-transform ${notesExpanded ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
+
               {notesExpanded && (
                 <div className="px-6 pb-6 space-y-3">
                   {app.notes?.length === 0 ? (
@@ -420,11 +633,14 @@ useEffect(load, [id]);
                       {[...app.notes].reverse().map((n) => (
                         <div key={n._id} className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3">
                           <p className="text-sm text-gray-700 dark:text-gray-300">{n.text}</p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{new Date(n.createdAt).toLocaleString()}</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            {new Date(n.createdAt).toLocaleString()}
+                          </p>
                         </div>
                       ))}
                     </div>
                   )}
+
                   <form onSubmit={submitNote} className="flex gap-2 pt-2">
                     <input
                       placeholder="Add a note..."
@@ -444,7 +660,14 @@ useEffect(load, [id]);
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                  <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                    />
+                  </svg>
                   Follow-up Email (AI)
                 </h2>
                 <button
@@ -454,84 +677,125 @@ useEffect(load, [id]);
                 >
                   {genBusy ? (
                     <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        />
+                      </svg>
                       Generating...
                     </>
                   ) : (
                     <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
+                      </svg>
                       Generate
                     </>
                   )}
                 </button>
               </div>
+
               {genFollowUp && (
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 space-y-2">
                   <p className="font-medium text-sm text-gray-900 dark:text-white">{genFollowUp.subject}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{genFollowUp.body}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                    {genFollowUp.body}
+                  </p>
                   <button
-                    onClick={() => navigator.clipboard.writeText(`${genFollowUp.subject}\n\n${genFollowUp.body}`).then(() => toast.success("Copied — paste it into your email client"))}
+                    onClick={() =>
+                      navigator.clipboard
+                        .writeText(`${genFollowUp.subject}\n\n${genFollowUp.body}`)
+                        .then(() => toast.success("Copied — paste it into your email client"))
+                    }
                     className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 mt-2 transition-colors"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
                     Copy text
                   </button>
                 </div>
               )}
 
               {/* Follow-up action menu */}
-              <div className="mt-4">
+              <div className="mt-4 relative">
                 <button
-                  onClick={() => setFollowUpMenu(true)}
+                  onClick={() => setFollowUpMenu((v) => !v)}
                   className="flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 underline"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
                   Follow-up ▾
                 </button>
+
                 {followUpMenu && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-lg z-50">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white mb-3">Follow-up for {app.jobTitle}</div>
-                    {followUpDisabled ? (
-                      <div className="text-xs text-yellow-600 dark:text-yellow-400 mb-4 block">Follow-ups are currently disabled for this job.</div>
-                    ) : null}
-                    <div className="space-y-2">
-                      {followUpDisabled ? null : (
-                        <div
-                          onClick={() => openEmailFollowUp()}
-                          style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", cursor: "pointer" }}
-                        >
-                          <span style={{ color: "#111827", fontSize: 14 }}>Follow-up Email</span>
-                        </div>
-                      )}
-                      {followUpDisabled ? null : (
-                        <div
-                          onClick={() => openInterviewFollowUp()}
-                          style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", cursor: "pointer" }}
-                        >
-                          <span style={{ color: "#111827", fontSize: 14 }}>Follow-up Interview</span>
-                        </div>
-                      )}
-                      {followUpDisabled ? null : (
-                        <div
-                          onClick={() => openCustomFollowUp()}
-                          style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", cursor: "pointer" }}
-                        >
-                          <span style={{ color: "#111827", fontSize: 14 }}>Add more (custom)</span>
-                        </div>
-                      )}
-                      <div
-                        onClick={() => toggleFollowUpDisabled()}
-                        style={{ padding: 12, alignItems: "center", marginTop: 4, cursor: "pointer" }}
-                      >
-                        <span style={{ color: followUpDisabled ? "#dc2626" : "#059669", fontWeight: "600" }}>
-                          {followUpDisabled ? "Enable follow-ups for this job" : "Disable follow-ups for this job"}
-                        </span>
+                  <div className="absolute left-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-lg z-50">
+                    <div className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+                      Follow-up for {app.jobTitle}
+                    </div>
+
+                    {followUpDisabled && (
+                      <div className="text-xs text-yellow-600 dark:text-yellow-400 mb-4">
+                        Follow-ups are currently disabled for this job.
                       </div>
+                    )}
+
+                    <div className="space-y-1">
+                      {!followUpDisabled && (
+                        <>
+                          <div
+                            onClick={openEmailFollowUp}
+                            className="px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-sm text-gray-900 dark:text-white"
+                          >
+                            Follow-up Email
+                          </div>
+                          <div
+                            onClick={openInterviewFollowUp}
+                            className="px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-sm text-gray-900 dark:text-white"
+                          >
+                            Follow-up Interview
+                          </div>
+                          <div
+                            onClick={openCustomFollowUp}
+                            className="px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-sm text-gray-900 dark:text-white"
+                          >
+                            Add more (custom)
+                          </div>
+                        </>
+                      )}
+
+                      <div
+                        onClick={toggleFollowUpDisabled}
+                        className="px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-sm font-semibold"
+                        style={{ color: followUpDisabled ? "#dc2626" : "#059669" }}
+                      >
+                        {followUpDisabled ? "Enable follow-ups for this job" : "Disable follow-ups for this job"}
+                      </div>
+
                       <div
                         onClick={() => setFollowUpMenu(false)}
-                        style={{ padding: 12, alignItems: "center", marginTop: 4, cursor: "pointer" }}
+                        className="px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-sm font-semibold text-brand-600"
                       >
-                        <span style={{ color: "brand-600", fontWeight: "600" }}>Cancel</span>
+                        Cancel
                       </div>
                     </div>
                   </div>
@@ -547,7 +811,14 @@ useEffect(load, [id]);
             {/* Schedule Follow-up */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                <svg className="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
                 Schedule Follow-up
               </h2>
               <form onSubmit={submitFollowUp} className="space-y-3">
@@ -562,9 +833,11 @@ useEffect(load, [id]);
                   value={followUpForm.type}
                   onChange={(e) => setFollowUpForm({ ...followUpForm, type: e.target.value })}
                 >
-                  {["Email Follow-up", "Call Follow-up", "LinkedIn Follow-up", "Recruiter Follow-up", "Interview Follow-up", "General"].map((t) => (
-                    <option key={t}>{t}</option>
-                  ))}
+                  {["Email Follow-up", "Call Follow-up", "LinkedIn Follow-up", "Recruiter Follow-up", "Interview Follow-up", "General"].map(
+                    (t) => (
+                      <option key={t}>{t}</option>
+                    )
+                  )}
                 </select>
                 <input
                   placeholder="Note (optional)"
@@ -581,7 +854,14 @@ useEffect(load, [id]);
             {/* Schedule Interview */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                  />
+                </svg>
                 Schedule Interview
               </h2>
               <form onSubmit={submitInterview} className="space-y-3">
@@ -597,14 +877,18 @@ useEffect(load, [id]);
                     value={interviewForm.round}
                     onChange={(e) => setInterviewForm({ ...interviewForm, round: e.target.value })}
                   >
-                    {ROUNDS.map((r) => <option key={r}>{r}</option>)}
+                    {ROUNDS.map((r) => (
+                      <option key={r}>{r}</option>
+                    ))}
                   </select>
                   <select
                     className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-all"
                     value={interviewForm.interviewType}
                     onChange={(e) => setInterviewForm({ ...interviewForm, interviewType: e.target.value })}
                   >
-                    {INTERVIEW_TYPES.map((t) => <option key={t}>{t}</option>)}
+                    {INTERVIEW_TYPES.map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
                   </select>
                 </div>
                 <input
@@ -628,7 +912,14 @@ useEffect(load, [id]);
             {/* Log Call */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                  />
+                </svg>
                 Log a Call
               </h2>
               <form onSubmit={submitCall} className="space-y-3">
@@ -637,7 +928,9 @@ useEffect(load, [id]);
                   value={callForm.result}
                   onChange={(e) => setCallForm({ ...callForm, result: e.target.value })}
                 >
-                  {CALL_RESULTS.map((r) => <option key={r}>{r}</option>)}
+                  {CALL_RESULTS.map((r) => (
+                    <option key={r}>{r}</option>
+                  ))}
                 </select>
                 <input
                   type="number"
@@ -674,30 +967,4 @@ useEffect(load, [id]);
       )}
     </div>
   );
-
-const openEmailFollowUp = () => {
-  if (!followUpDisabled && requireGmail()) {
-    generateFollowUp();
-    setFollowUpMenu(false);
-  }
-};
-
-const openInterviewFollowUp = () => {
-  if (!followUpDisabled) {
-    setFollowUpMenu(false);
-    const d = new Date();
-    d.setDate(d.getDate() + 3);
-    setInterviewForm({ date: d.toISOString().split("T")[0] + "T11:00", round: "Round 1", interviewType: "Video", meetingUrl: "", interviewer: "" });
-  }
-};
-
-const openCustomFollowUp = () => {
-  if (!followUpDisabled) {
-    setFollowUpMenu(false);
-    setFollowUpForm({ date: defaultFollowUpDate(), type: "General", note: "" });
-  }
-};
-
-const toggleFollowUpDisabled = () => {
-  setFollowUpDisabled((prev) => !prev);
 }
