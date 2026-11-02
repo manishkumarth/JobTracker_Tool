@@ -208,7 +208,7 @@ export default function ApplicationDetail() {
               <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </div>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${followUpDisabled ? "bg-yellow-500" : "bg-gray-400"}"></span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: followUpDisabled ? "#f59e0b" : "#6b7280" }}></span>
               <select
                 value={followUpDisabled ? "true" : "false"}
                 onChange={(e) => setFollowUpDisabled(e.target.value === "true")}
