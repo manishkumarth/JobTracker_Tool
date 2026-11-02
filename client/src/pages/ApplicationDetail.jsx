@@ -70,6 +70,7 @@ export default function ApplicationDetail() {
 };
 useEffect(load, [id]);
 
+
   let loadingUI = null;
   if (loading) {
     loadingUI = (
