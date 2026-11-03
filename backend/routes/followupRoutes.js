@@ -187,6 +187,7 @@ router.put("/:id", async (req, res) => {
     if (req.body.note != null) allowed.note = req.body.note;
     if (req.body.type != null) allowed.type = req.body.type;
     if (req.body.status != null) allowed.status = req.body.status;
+    if (req.body.disabled != null) allowed.disabled = req.body.disabled;
 
     const followUp = await FollowUp.findOneAndUpdate(
       { _id: req.params.id, owner: req.userId },

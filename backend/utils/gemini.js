@@ -123,6 +123,8 @@ The text could be:
 - A LinkedIn message from a recruiter
 - Any copied LinkedIn content
 
+IMPORTANT: If the text mentions MULTIPLE different roles (e.g. "Business Development AND Software Developer" or "Hiring for Sales and Engineering roles"), focus ONLY on the software / technical development role and IGNORE non-technical roles like Business Development, Sales, Marketing, etc. Extract the job title, skills, and requirements for the software development position only.
+
 Extract whatever fields are relevant. If a field is not present in the text, set it to null.
 
 Respond ONLY with raw JSON, no markdown fences, in exactly this shape:
@@ -154,6 +156,8 @@ export const analyzeJobDescription = async ({ jobDescription, profile }) => {
 Analyze this job description and extract structured information. Then compare requirements
 against the candidate's actual profile below \u2014 never claim the candidate has a skill that
 isn't listed in their profile.
+
+IMPORTANT: If the job description mentions MULTIPLE different roles (e.g. "Business Development AND Software Developer" or "Hiring for Sales and Engineering roles"), focus ONLY on the software / technical development role and IGNORE non-technical roles like Business Development, Sales, Marketing, etc. Extract the job title, skills, and requirements for the software development position only.
 
 ${candidateFactsBlock(profile)}
 

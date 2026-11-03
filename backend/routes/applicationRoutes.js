@@ -348,7 +348,7 @@ router.get("/:id/resume-match", async (req, res) => {
 
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const resumes = profile?.resumes || [];
-    const match = matchResumeForJob({ resumes, jobTitle: application.jobTitle });
+    const match = matchResumeForJob({ resumes, jobTitle: application.jobTitle, profileExperience: profile?.experience || "" });
     const alreadySent = await EmailLog.findOne({
       owner: req.userId,
       application: application._id,

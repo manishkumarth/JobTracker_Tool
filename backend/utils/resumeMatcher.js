@@ -44,6 +44,53 @@ const STOPWORDS = new Set([
   "from", "home", "wfh", "any", "all", "multiple", "team",
 ]);
 
+// Seniority keywords found in job titles
+const SENIORITY_LEVELS = {
+  entry: ["junior", "jr", "entry", "trainee", "intern", "internship", "associate", "fresher", "new grad"],
+  mid: ["mid", "middle", "mid-level", "midlevel", "experienced", "2-3 years", "3-5 years"],
+  senior: ["senior", "sr", "lead", "principal", "staff", "5+ years", "5+", "7+ years", "7+"],
+  executive: ["director", "vp", "head of", "chief", "cto", "ceo"],
+};
+
+function extractSeniority(text) {
+  const t = String(text || "").toLowerCase();
+  for (const [level, keywords] of Object.entries(SENIORITY_LEVELS)) {
+    if (keywords.some((k) => t.includes(k))) return level;
+  }
+  return null;
+}
+
+function extractYears(text) {
+  const t = String(text || "").toLowerCase();
+  const match = t.match(/(\d+)\s*\+\?\s*years?/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+function experienceLevelFromYears(years) {
+  if (years == null) return null;
+  if (years <= 2) return "entry";
+  if (years <= 5) return "mid";
+  if (years <= 9) return "senior";
+  return "executive";
+}
+
+function experienceCompatibility(profileExperience, jobTitle) {
+  if (!profileExperience) return 0;
+  const jobSeniority = extractSeniority(jobTitle);
+  const profileYears = extractYears(profileExperience);
+  const profileLevel = profileYears ? experienceLevelFromYears(profileYears) : extractSeniority(profileExperience);
+
+  if (!jobSeniority || !profileLevel) return 0;
+
+  const levelOrder = { entry: 0, mid: 1, senior: 2, executive: 3 };
+  const diff = levelOrder[profileLevel] - levelOrder[jobSeniority];
+
+  // Same level = full compatibility, one level off = partial, more = none
+  if (diff === 0) return 1;
+  if (Math.abs(diff) === 1) return 0.5;
+  return 0;
+}
+
 export function normalizeText(value) {
   let text = String(value || "").toLowerCase();
   text = text.replace(/&/g, " and ");
@@ -115,6 +162,7 @@ function publicResume(resume) {
  * @param {Object} opts
  * @param {Array} opts.resumes - CandidateProfile.resumes
  * @param {string} opts.jobTitle - scraped/saved application job title
+ * @param {string} opts.profileExperience - candidate's experience string (e.g. "3 years", "Senior")
  * @returns {{
  *   matched: boolean,
  *   resume: object|null,
@@ -125,7 +173,7 @@ function publicResume(resume) {
  *   jobTitle: string
  * }}
  */
-export function matchResumeForJob({ resumes = [], jobTitle = "" } = {}) {
+export function matchResumeForJob({ resumes = [], jobTitle = "", profileExperience = "" } = {}) {
   const list = Array.isArray(resumes) ? resumes : [];
   const title = String(jobTitle || "").trim();
   const base = { matched: false, resume: null, resumeId: null, score: 0, matchedTerms: [], jobTitle: title };
@@ -136,11 +184,15 @@ export function matchResumeForJob({ resumes = [], jobTitle = "" } = {}) {
   const withNotes = list.filter((r) => String(r?.notes || "").trim());
   if (!withNotes.length) return { ...base, reason: "no_resume_notes" };
 
+  const expBonus = experienceCompatibility(profileExperience, title);
+
   let best = null;
   for (const resume of withNotes) {
     const { score, matchedTerms } = scoreResume(resume, title);
     if (score <= 0) continue;
-    if (!best || score > best.score) best = { resume, score, matchedTerms };
+    // Add experience compatibility bonus (up to +1 to the score)
+    const finalScore = score + expBonus;
+    if (!best || finalScore > best.score) best = { resume, score: finalScore, matchedTerms };
   }
 
   if (!best) return { ...base, reason: "no_matching_resume" };
