@@ -10,6 +10,8 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
   const isParsing = parsingId === resume._id;
   const [notes, setNotes] = useState(resume.notes || "");
   const [editing, setEditing] = useState(false);
+  const [experienceMin, setExperienceMin] = useState(resume.experienceMin || "");
+  const [experienceMax, setExperienceMax] = useState(resume.experienceMax || "");
 
   const saveNotes = async () => {
     setEditing(false);
@@ -80,8 +82,13 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
             step="0.5"
             placeholder="e.g. 2"
             className="input text-xs py-1 w-full"
-            value={resume.experienceMin || ""}
-            onChange={(e) => onSaveExperience?.(resume._id, { experienceMin: e.target.value ? parseFloat(e.target.value) : null })}
+            value={experienceMin}
+            onChange={(e) => setExperienceMin(e.target.value)}
+            onBlur={() => {
+              if (onSaveExperience && experienceMin !== (resume.experienceMin || "")) {
+                onSaveExperience(resume._id, { experienceMin: experienceMin ? parseFloat(experienceMin) : null });
+              }
+            }}
           />
         </div>
         <div>
@@ -91,8 +98,13 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
             step="0.5"
             placeholder="e.g. 5"
             className="input text-xs py-1 w-full"
-            value={resume.experienceMax || ""}
-            onChange={(e) => onSaveExperience?.(resume._id, { experienceMax: e.target.value ? parseFloat(e.target.value) : null })}
+            value={experienceMax}
+            onChange={(e) => setExperienceMax(e.target.value)}
+            onBlur={() => {
+              if (onSaveExperience && experienceMax !== (resume.experienceMax || "")) {
+                onSaveExperience(resume._id, { experienceMax: experienceMax ? parseFloat(experienceMax) : null });
+              }
+            }}
           />
         </div>
       </div>
