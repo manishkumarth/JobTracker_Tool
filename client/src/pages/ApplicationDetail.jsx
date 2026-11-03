@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { getApplication, changeStatus, addNote, deleteApplication, APPLICATION_STATUSES } from "../api/applications.js";
+import { getApplication, changeStatus, addNote, deleteApplication, updateApplication, APPLICATION_STATUSES } from "../api/applications.js";
 import { createFollowUp } from "../api/followups.js";
 import { createInterview } from "../api/interviews.js";
 import { createCall } from "../api/calls.js";
@@ -84,6 +84,12 @@ export default function ApplicationDetail() {
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [descExpanded, setDescExpanded] = useState(false);
   const [followUpDisabled, setFollowUpDisabled] = useState(false);
+  // Load saved disabled state from app
+  useEffect(() => {
+    if (app && app.followUpDisabled != null) {
+      setFollowUpDisabled(app.followUpDisabled);
+    }
+  }, [app]);
   const [followUpMenu, setFollowUpMenu] = useState(false);
 
   const load = () => {
@@ -258,8 +264,15 @@ export default function ApplicationDetail() {
     }
   };
 
-  const toggleFollowUpDisabled = () => {
-    setFollowUpDisabled((prev) => !prev);
+  const toggleFollowUpDisabled = async () => {
+    const newValue = !followUpDisabled;
+    setFollowUpDisabled(newValue);
+    // Save disabled state to application
+    try {
+      await updateApplication(id, { followUpDisabled: newValue });
+    } catch {
+      toast.error("Failed to save follow-up setting");
+    }
   };
 
   // ---------- main UI ----------

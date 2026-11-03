@@ -70,6 +70,7 @@ const applicationSchema = new mongoose.Schema(
 
     applicationDate: { type: Date, default: null },
     followUpDate: { type: Date, default: null },
+    followUpDisabled: { type: Boolean, default: false },
 
     status: { type: String, enum: APPLICATION_STATUSES, default: "NEW" },
     priority: { type: String, enum: ["Low", "Medium", "High", "Urgent"], default: "Medium" },
