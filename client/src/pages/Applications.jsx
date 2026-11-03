@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { listApplications, APPLICATION_STATUSES, bulkUpdateStatus, bulkScheduleFollowUp, bulkDeleteApplications, bulkSendFollowUps } from "../api/applications.js";
+import api from "../api/axios.js";
 
 function defaultFollowUpDate() {
   const d = new Date();
@@ -31,10 +32,29 @@ export default function Applications() {
   const [autoSendFollowUps, setAutoSendFollowUps] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
+  const [followUpCount, setFollowUpCount] = useState({});
+
   const load = () => {
     setLoading(true);
     listApplications({ search, status, page, limit: 15 })
-      .then(setData)
+      .then((data) => {
+        setData(data);
+        // Load follow-up counts for displayed applications
+        const ids = (data.applications || []).map((a) => a._id);
+        if (ids.length > 0) {
+          Promise.all(
+            ids.map((id) =>
+              api.get(`/applications/${id}/followups/count`).catch(() => ({ data: { total: 0, sent: 0 } }))
+            )
+          ).then((results) => {
+            const counts = {};
+            results.forEach((r, i) => {
+              if (r && r.data) counts[ids[i]] = r.data;
+            });
+            setFollowUpCount(counts);
+          }).catch(() => {});
+        }
+      })
       .catch(() => toast.error("Failed to load applications"))
       .finally(() => setLoading(false));
   };
@@ -266,6 +286,11 @@ export default function Applications() {
                     <StatusBadge status={a.status} />
                     {a.workMode && <span className="badge badge-neutral text-xs">{a.workMode}</span>}
                     {a.employmentType && <span className="badge badge-neutral text-xs">{a.employmentType}</span>}
+                    {followUpCount[a._id] && (
+                      <span className="badge badge-info text-[10px] ml-auto" title={`${followUpCount[a._id].sent || 0} sent / ${followUpCount[a._id].total || 0} total`}>
+                        🔔 {followUpCount[a._id].total || 0} follow-ups
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between text-xs text-muted mt-auto pt-2 border-t border-color">

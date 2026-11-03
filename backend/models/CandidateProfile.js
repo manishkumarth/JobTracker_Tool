@@ -9,6 +9,8 @@ const resumeSchema = new mongoose.Schema(
     size: { type: Number },
     isDefault: { type: Boolean, default: false },
     notes: { type: String, default: "" },
+    experienceMin: { type: Number, default: null },
+    experienceMax: { type: Number, default: null },
     uploadedAt: { type: Date, default: Date.now },
   },
   { _id: true }

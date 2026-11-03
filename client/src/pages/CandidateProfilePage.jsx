@@ -6,7 +6,7 @@ import { listResumes, uploadResume, setDefaultResume, updateResume, deleteResume
 const arrToStr = (arr) => (arr || []).join(", ");
 const strToArr = (str) => str.split(",").map((s) => s.trim()).filter(Boolean);
 
-function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSaveNotes }) {
+function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSaveNotes, onSaveExperience }) {
   const isParsing = parsingId === resume._id;
   const [notes, setNotes] = useState(resume.notes || "");
   const [editing, setEditing] = useState(false);
@@ -69,6 +69,32 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
           </svg>
         </button>
       </div>
+      </div>
+
+      {/* Experience range — used for automatic resume selection */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] text-muted block mb-0.5">Min experience (yrs)</label>
+          <input
+            type="number"
+            step="0.5"
+            placeholder="e.g. 2"
+            className="input text-xs py-1 w-full"
+            value={resume.experienceMin || ""}
+            onChange={(e) => onSaveExperience?.(resume._id, { experienceMin: e.target.value ? parseFloat(e.target.value) : null })}
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-muted block mb-0.5">Max experience (yrs)</label>
+          <input
+            type="number"
+            step="0.5"
+            placeholder="e.g. 5"
+            className="input text-xs py-1 w-full"
+            value={resume.experienceMax || ""}
+            onChange={(e) => onSaveExperience?.(resume._id, { experienceMax: e.target.value ? parseFloat(e.target.value) : null })}
+          />
+        </div>
       </div>
 
       {/* Role notes — used for automatic resume selection */}
@@ -253,6 +279,12 @@ masterPrompt: result.profile.masterPrompt || form.masterPrompt || "",
   const handleSaveResumeNotes = async (resumeId, notes) => {
     const { resume } = await updateResume(resumeId, { notes });
     setResumes((prev) => prev.map((r) => (r._id === resumeId ? { ...r, notes: resume.notes } : r)));
+  };
+
+  const handleSaveResumeExperience = async (resumeId, experienceData) => {
+    const { resume } = await updateResume(resumeId, experienceData);
+    setResumes((prev) => prev.map((r) => (r._id === resumeId ? { ...r, experienceMin: resume.experienceMin, experienceMax: resume.experienceMax } : r)));
+    toast.success("Experience range saved");
   };
 
   const handleDeleteResume = async (resumeId) => {
@@ -474,6 +506,7 @@ masterPrompt: result.profile.masterPrompt || form.masterPrompt || "",
                       onSetDefault={handleSetDefault}
                       onDelete={handleDeleteResume}
                       onSaveNotes={handleSaveResumeNotes}
+                      onSaveExperience={handleSaveResumeExperience}
                     />
                   ))}
                 </div>

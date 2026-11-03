@@ -62,7 +62,7 @@ function extractSeniority(text) {
 
 function extractYears(text) {
   const t = String(text || "").toLowerCase();
-  const match = t.match(/(\d+)\s*\+\?\s*years?/);
+  const match = t.match(/(\d+)\s*years?/);
   return match ? parseInt(match[1], 10) : null;
 }
 
@@ -117,10 +117,10 @@ function notePhrases(notes) {
 }
 
 /**
- * Score one resume against a job title.
+ * Score one resume against a job title and optional job experience requirement.
  * Returns 0 when the resume has no usable notes or no meaningful overlap.
  */
-export function scoreResume(resume, jobTitle) {
+export function scoreResume(resume, jobTitle, jobExperience = null) {
   const jobTokens = new Set(tokenize(jobTitle));
   if (!jobTokens.size) return { score: 0, matchedTerms: [] };
 
@@ -143,6 +143,17 @@ export function scoreResume(resume, jobTitle) {
     }
   }
 
+  // Experience range matching: if job has experienceRequired and resume has
+  // experienceMin/experienceMax, check if job experience falls within range.
+  if (jobExperience != null && resume.experienceMin != null && resume.experienceMax != null) {
+    const jobYears = parseFloat(String(jobExperience));
+    if (!Number.isNaN(jobYears) && jobYears >= resume.experienceMin && jobYears <= resume.experienceMax) {
+      score += 2; // strong bonus when experience range matches
+    } else if (!Number.isNaN(jobYears)) {
+      score -= 1; // slight penalty when experience doesn't match
+    }
+  }
+
   return { score, matchedTerms };
 }
 
@@ -153,6 +164,8 @@ function publicResume(resume) {
     originalName: resume.originalName,
     notes: resume.notes || "",
     size: resume.size,
+    experienceMin: resume.experienceMin || null,
+    experienceMax: resume.experienceMax || null,
   };
 }
 
@@ -163,6 +176,7 @@ function publicResume(resume) {
  * @param {Array} opts.resumes - CandidateProfile.resumes
  * @param {string} opts.jobTitle - scraped/saved application job title
  * @param {string} opts.profileExperience - candidate's experience string (e.g. "3 years", "Senior")
+ * @param {string|number} opts.jobExperience - job's experience required (e.g. "2.5", "2")
  * @returns {{
  *   matched: boolean,
  *   resume: object|null,
@@ -173,7 +187,7 @@ function publicResume(resume) {
  *   jobTitle: string
  * }}
  */
-export function matchResumeForJob({ resumes = [], jobTitle = "", profileExperience = "" } = {}) {
+export function matchResumeForJob({ resumes = [], jobTitle = "", profileExperience = "", jobExperience = null } = {}) {
   const list = Array.isArray(resumes) ? resumes : [];
   const title = String(jobTitle || "").trim();
   const base = { matched: false, resume: null, resumeId: null, score: 0, matchedTerms: [], jobTitle: title };
@@ -184,13 +198,13 @@ export function matchResumeForJob({ resumes = [], jobTitle = "", profileExperien
   const withNotes = list.filter((r) => String(r?.notes || "").trim());
   if (!withNotes.length) return { ...base, reason: "no_resume_notes" };
 
-  const expBonus = experienceCompatibility(profileExperience, title);
-
   let best = null;
   for (const resume of withNotes) {
-    const { score, matchedTerms } = scoreResume(resume, title);
+    const { score, matchedTerms } = scoreResume(resume, title, jobExperience);
     if (score <= 0) continue;
-    // Add experience compatibility bonus (up to +1 to the score)
+    // Add experience compatibility bonus from profile-level experience
+    const expBonus = experienceCompatibility(profileExperience, title);
+    // Add resume-specific experience range bonus (already part of score via scoreResume)
     const finalScore = score + expBonus;
     if (!best || finalScore > best.score) best = { resume, score: finalScore, matchedTerms };
   }

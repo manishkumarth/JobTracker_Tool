@@ -9,6 +9,7 @@ import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
 import { matchResumeForJob, describeResumeMatches } from "../utils/resumeMatcher.js";
 import EmailLog from "../models/EmailLog.js";
+import FollowUp from "../models/FollowUp.js";
 
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -339,6 +340,19 @@ router.post("/bulk/delete", async (req, res) => {
   }
 });
 
+// GET /api/applications/:id/followups/count
+router.get("/:id/followups/count", async (req, res) => {
+  try {
+    const app = await Application.findOne({ _id: req.params.id, owner: req.userId });
+    if (!app) return res.status(404).json({ message: "Not found" });
+    const total = await FollowUp.countDocuments({ owner: req.userId, application: req.params.id });
+    const sent = await EmailLog.countDocuments({ owner: req.userId, application: req.params.id, emailType: "Follow-up", status: "Sent" });
+    res.json({ total: total || 0, sent: sent || 0, applicationId: req.params.id });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/applications/:id/resume-match
 // Read-only preview of the resume the auto-send flow will use.
 router.get("/:id/resume-match", async (req, res) => {
@@ -348,7 +362,7 @@ router.get("/:id/resume-match", async (req, res) => {
 
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const resumes = profile?.resumes || [];
-    const match = matchResumeForJob({ resumes, jobTitle: application.jobTitle, profileExperience: profile?.experience || "" });
+    const match = matchResumeForJob({ resumes, jobTitle: application.jobTitle, profileExperience: profile?.experience || "", jobExperience: application.experienceRequired || null });
     const alreadySent = await EmailLog.findOne({
       owner: req.userId,
       application: application._id,
