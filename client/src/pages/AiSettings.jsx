@@ -210,9 +210,16 @@ function GmailSection() {
 
 function ProviderCard({ p, onSave, onDelete, onActivate, onTest }) {
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState(p.defaultModel);
+  const [model, setModel] = useState(p.model || p.defaultModel || "");
   const [testing, setTesting] = useState(false);
   const [showKey, setShowKey] = useState(false);
+
+  useEffect(() => {
+    if (p) {
+      setModel(p.model || p.defaultModel || "");
+      setApiKey("");
+    }
+  }, [p]);
 
   const handleSave = async () => {
     if (!apiKey.trim() && !p.connected) return toast.error("Enter an API key first");

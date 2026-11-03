@@ -50,7 +50,7 @@ router.put("/providers", async (req, res) => {
     const entry = {
       provider,
       apiKeyEnc: apiKey ? encrypt(apiKey) : (idx >= 0 ? user.aiProviders[idx].apiKeyEnc : ""),
-      model: model || (idx >= 0 ? user.aiProviders[idx].model : def.defaultModel),
+      model: (model !== undefined && model !== null) ? model : (idx >= 0 ? user.aiProviders[idx].model : def.defaultModel),
       active: active ?? (idx >= 0 ? user.aiProviders[idx].active : false),
     };
 
