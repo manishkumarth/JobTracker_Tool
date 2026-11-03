@@ -84,7 +84,7 @@ export default function ApplicationDetail() {
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [descExpanded, setDescExpanded] = useState(false);
   const [followUpDisabled, setFollowUpDisabled] = useState(false);
-  // Load saved disabled state from app
+  // Load saved disabled state from appfollo
   useEffect(() => {
     if (app && app.followUpDisabled != null) {
       setFollowUpDisabled(app.followUpDisabled);
@@ -336,7 +336,15 @@ export default function ApplicationDetail() {
               ></span>
               <select
                 value={followUpDisabled ? "true" : "false"}
-                onChange={(e) => setFollowUpDisabled(e.target.value === "true")}
+                onChange={async (e) => {
+                  const newVal = e.target.value === "true";
+                  setFollowUpDisabled(newVal);
+                  try {
+                    await updateApplication(id, { followUpDisabled: newVal });
+                  } catch {
+                    toast.error("Failed to save follow-up setting");
+                  }
+                }}
                 className="appearance-none bg-gray-100 dark:bg-gray-800 border-0 rounded-xl pl-8 pr-8 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-brand-500/40 cursor-pointer"
               >
                 <option value="false">Follow-ups enabled</option>
@@ -757,7 +765,7 @@ export default function ApplicationDetail() {
                 </button>
 
                 {followUpMenu && (
-                  <div className="absolute left-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-lg z-50">
+                  <div className="fixed z-[60] bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-2xl" style={{ top: '420px', left: '60px', maxWidth: '260px' }}>
                     <div className="text-sm font-medium text-gray-900 dark:text-white mb-3">
                       Follow-up for {app.jobTitle}
                     </div>
