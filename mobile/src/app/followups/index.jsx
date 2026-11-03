@@ -216,7 +216,7 @@ export default function FollowUps() {
           />
           <Text style={{ color: autoSend ? colors.primary : colors.textMuted, fontSize: 12 }}>
             {autoSend ? "Auto send" : "Manual"}
-          </Switch>
+          </Text>
         </View>
       </View>
 

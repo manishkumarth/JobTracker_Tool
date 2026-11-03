@@ -68,6 +68,8 @@ router.patch("/:resumeId", async (req, res) => {
     if (!resume) return res.status(404).json({ message: "Resume not found" });
 
     if (req.body.notes !== undefined) resume.notes = req.body.notes;
+    if (req.body.experienceMin !== undefined) resume.experienceMin = req.body.experienceMin === null ? null : Number(req.body.experienceMin);
+    if (req.body.experienceMax !== undefined) resume.experienceMax = req.body.experienceMax === null ? null : Number(req.body.experienceMax);
     await profile.save();
 
     res.json({ resume });
