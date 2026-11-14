@@ -233,6 +233,31 @@ async function performSend(req, params) {
       if (["NEW", "SAVED", "APPLYING"].includes(application.status)) {
         application.status = "EMAIL_SENT";
       }
+
+      // Create the first follow-up (3 days from now) if one doesn't already exist
+      // and follow-ups aren't disabled for this application.
+      if (!application.followUpDisabled) {
+        const FollowUp = (await import("../models/FollowUp.js")).default;
+        const existing = await FollowUp.findOne({
+          owner: req.userId,
+          application: application._id,
+        });
+        if (!existing) {
+          const followUpDate = new Date();
+          followUpDate.setDate(followUpDate.getDate() + 3);
+          followUpDate.setHours(11, 0, 0, 0);
+          await FollowUp.create({
+            owner: req.userId,
+            application: application._id,
+            type: "Email Follow-up",
+            date: followUpDate,
+            note: "Auto-scheduled (3 days after first email). Edit if needed.",
+            status: "Pending",
+          });
+          application.followUpDate = followUpDate;
+        }
+      }
+
       await logActivity(application, "email_sent", `Email sent to ${sentCount} recipient(s)${isAiGenerated ? " (AI-generated)" : ""}`);
     }
   }

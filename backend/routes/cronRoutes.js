@@ -11,22 +11,43 @@ const router = express.Router();
 
 const ADMIN_EMAIL = "manish12099@gmail.com";
 
-// Core logic: send AI follow-up emails for applications sent ~3 days ago with no follow-up yet.
+// Core logic: send AI follow-up emails for applications with due follow-ups.
+// Follow-ups are recurring (every 3 days) and are created after the first email is sent.
 export const runAutoFollowUps = async () => {
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+  const now = new Date();
 
-  const candidates = await Application.find({
-    applicationDate: { $lte: threeDaysAgo },
-    status: { $in: ["EMAIL_SENT", "APPLYING", "SAVED", "NEW"] },
-  }).limit(50);
+  // Find pending follow-ups that are due (date <= now) and not disabled
+  const FollowUp = (await import("../models/FollowUp.js")).default;
+  const dueFollowUps = await FollowUp.find({
+    date: { $lte: now },
+    status: "Pending",
+    disabled: { $ne: true },
+  })
+    .populate("application")
+    .limit(50);
 
   let sent = 0;
   let skipped = 0;
 
-  for (const application of candidates) {
+  for (const followUp of dueFollowUps) {
+    const application = followUp.application;
+    if (!application) {
+      // Orphaned follow-up
+      skipped++;
+      continue;
+    }
+
     try {
       const user = await User.findById(application.owner);
       if (!user || !user.gmailConnected || user.isDisabled) {
+        skipped++;
+        continue;
+      }
+
+      // Skip if follow-ups are disabled on the application
+      if (application.followUpDisabled) {
+        followUp.status = "Cancelled";
+        await followUp.save();
         skipped++;
         continue;
       }

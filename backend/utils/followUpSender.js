@@ -78,7 +78,19 @@ ${JSON_ONLY}:
 
   const text = await callLLM({ userProviders: user.aiProviders || [], prompt });
   const parsed = parseJson(text);
-  if (!parsed.subject || !parsed.body) return { sent: false, reason: "bad_response" };
+  if (!parsed.subject || !parsed.body) {
+    // AI failed (e.g., token limit, bad response) — create a Failed follow-up
+    // so the user sees it in the Follow-ups list and can retry.
+    await FollowUp.create({
+      owner: user._id,
+      application: application._id,
+      type: "Email Follow-up",
+      date: new Date(),
+      note: "AI generation failed (token limit / bad response). Retry to send.",
+      status: "Failed",
+    });
+    return { sent: false, reason: "bad_response" };
+  }
 
   const subject = sanitizeText(parsed.subject);
   const body = sanitizeText(parsed.body);
@@ -118,6 +130,17 @@ ${JSON_ONLY}:
     logEntry.status = "Failed";
     logEntry.errorMessage = err.message;
     await logEntry.save();
+
+    // Create a Failed follow-up doc so the user can retry from the Follow-ups page
+    await FollowUp.create({
+      owner: user._id,
+      application: application._id,
+      type: "Email Follow-up",
+      date: new Date(),
+      note: `Send failed: ${err.message}. Retry to send.`,
+      status: "Failed",
+    });
+
     return { sent: false, reason: "send_failed" };
   }
 
@@ -125,9 +148,8 @@ ${JSON_ONLY}:
   logEntry.sentAt = new Date();
   await logEntry.save();
 
-  // Keep the Follow-ups page in sync with Email History: complete any
-  // scheduled follow-up for this application, or record this auto-send as a
-  // completed follow-up so it appears in the Follow-ups list too.
+  // Complete the pending follow-up (if any) and schedule the NEXT one
+  // for 3 days later, unless follow-ups are disabled.
   const pendingFollowUp = await FollowUp.findOne({
     owner: user._id,
     application: application._id,
@@ -136,24 +158,34 @@ ${JSON_ONLY}:
   if (pendingFollowUp) {
     pendingFollowUp.status = "Completed";
     await pendingFollowUp.save();
-    application.followUpDate = null;
-  } else {
-    const alreadyLogged = await FollowUp.findOne({
+  }
+
+  // Record this sent follow-up
+  await FollowUp.create({
+    owner: user._id,
+    application: application._id,
+    type: "Email Follow-up",
+    date: new Date(),
+    note: "Follow-up email sent",
+    status: "Completed",
+  });
+
+  // Schedule the next follow-up (recurring every 3 days)
+  if (!application.followUpDisabled) {
+    const nextFollowUpDate = new Date();
+    nextFollowUpDate.setDate(nextFollowUpDate.getDate() + 3);
+    nextFollowUpDate.setHours(11, 0, 0, 0);
+    await FollowUp.create({
       owner: user._id,
       application: application._id,
-      status: "Completed",
       type: "Email Follow-up",
+      date: nextFollowUpDate,
+      note: "Auto-scheduled (3 days after last follow-up). Edit if needed.",
+      status: "Pending",
     });
-    if (!alreadyLogged) {
-      await FollowUp.create({
-        owner: user._id,
-        application: application._id,
-        type: "Email Follow-up",
-        date: new Date(),
-        note: "Follow-up email sent",
-        status: "Completed",
-      });
-    }
+    application.followUpDate = nextFollowUpDate;
+  } else {
+    application.followUpDate = null;
   }
 
   application.status = "FOLLOW_UP_SENT";

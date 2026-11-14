@@ -125,7 +125,8 @@ export default function FollowUps() {
     [calYear, calMonth, calendarFollowUps]
   );
 
-  const pendingItems = followUps.filter((f) => !f.emailSent && !f.disabled);
+  const pendingItems = followUps.filter((f) => !f.emailSent && !f.disabled && f.status !== "Failed");
+  const failedItems = followUps.filter((f) => !f.emailSent && !f.disabled && f.status === "Failed");
   const disabledItems = followUps.filter((f) => f.disabled);
   const selectedCount = selected.length;
 
@@ -217,9 +218,9 @@ export default function FollowUps() {
   };
 
   const sendSelected = async () => {
-    const targets = autoSend ? pendingItems.map((f) => f._id) : selected;
+    const targets = autoSend ? [...pendingItems, ...failedItems].map((f) => f._id) : selected;
     if (!targets.length) {
-      return toast.error(autoSend ? "No unsent follow-ups" : "Select at least one follow-up");
+      return toast.error(autoSend ? "No unsent/failed follow-ups" : "Select at least one follow-up");
     }
     if (!requireGmail()) return;
     setBulkSending(true);
@@ -227,7 +228,7 @@ export default function FollowUps() {
     for (const id of targets) {
       try {
         await sendFollowUpEmail(id);
-        setFollowUps((prev) => prev.map((f) => (f._id === id ? { ...f, emailSent: true } : f)));
+        setFollowUps((prev) => prev.map((f) => (f._id === id ? { ...f, emailSent: true, status: "Completed" } : f)));
         ok++;
       } catch {
         /* already sent or failed */
@@ -237,6 +238,25 @@ export default function FollowUps() {
     setSelected([]);
     if (ok > 0) toast.success(`${ok} follow-up email${ok > 1 ? "s" : ""} sent`);
     else toast.error("No follow-ups could be sent");
+  };
+
+  const retryFailed = async () => {
+    if (!failedItems.length) return toast.error("No failed follow-ups to retry");
+    if (!requireGmail()) return;
+    setBulkSending(true);
+    let ok = 0;
+    for (const f of failedItems) {
+      try {
+        await sendFollowUpEmail(f._id);
+        setFollowUps((prev) => prev.map((fu) => (fu._id === f._id ? { ...fu, emailSent: true, status: "Completed" } : fu)));
+        ok++;
+      } catch {
+        /* keep as failed */
+      }
+    }
+    setBulkSending(false);
+    if (ok > 0) toast.success(`Retried ${ok} failed follow-up${ok > 1 ? "s" : ""}`);
+    else toast.error("No failed follow-ups could be retried");
   };
 
   const toggleSelect = (id) => {
@@ -350,7 +370,13 @@ export default function FollowUps() {
                             <div
                               key={f._id}
                               className="w-1.5 h-1.5 rounded-full"
-                              style={{ backgroundColor: f.emailSent ? "#10b981" : "#f59e0b" }}
+                              style={{
+                                backgroundColor: f.emailSent
+                                  ? "#10b981"
+                                  : f.status === "Failed"
+                                  ? "#ef4444"
+                                  : "#f59e0b",
+                              }}
                             />
                           ))}
                           {calFollowUpsForDate(day).length > 3 && (
@@ -392,6 +418,15 @@ export default function FollowUps() {
                       <div className="flex items-center gap-2 ml-2">
                         {f.emailSent ? (
                           <span className="badge badge-success text-[10px]">Sent</span>
+                        ) : f.status === "Failed" ? (
+                          <button
+                            onClick={() => sendOne(f._id)}
+                            disabled={sendingIds.includes(f._id)}
+                            className="text-[10px] text-warning hover:text-orange-600 underline"
+                            title="Retry failed"
+                          >
+                            Retry
+                          </button>
                         ) : (
                           <button
                             onClick={() => sendOne(f._id)}
@@ -541,6 +576,19 @@ export default function FollowUps() {
           {selectedCount > 0 && !autoSend && (
             <span className="text-xs text-muted">{selectedCount} selected</span>
           )}
+          {failedItems.length > 0 && (
+            <button
+              onClick={retryFailed}
+              disabled={bulkSending}
+              className="btn btn-warning btn-sm"
+              title="Retry all failed follow-ups"
+            >
+              <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Retry failed ({failedItems.length})
+            </button>
+          )}
           <button onClick={sendSelected} disabled={bulkSending} className="btn btn-primary btn-sm">
             {bulkSending ? (
               <>
@@ -663,6 +711,9 @@ export default function FollowUps() {
                           {f.emailSent && (
                             <span className="badge badge-success text-[10px]">Email sent</span>
                           )}
+                          {f.status === "Failed" && (
+                            <span className="badge badge-danger text-[10px]">Failed</span>
+                          )}
                         </div>
                         {f.note && !isEditing && (
                           <p className="text-xs text-muted mt-1 truncate">{f.note}</p>
@@ -693,7 +744,7 @@ export default function FollowUps() {
 
                       <label
                         className="flex items-center gap-1.5 cursor-pointer"
-                        title={f.emailSent ? "Already sent" : "Select to send"}
+                        title={f.emailSent ? "Already sent" : "Select to send/retry"}
                       >
                         <input
                           type="checkbox"
@@ -702,43 +753,81 @@ export default function FollowUps() {
                           onChange={() => toggleSelect(f._id)}
                           className="w-4 h-4 rounded border-border-strong text-accent focus:ring-accent disabled:opacity-40"
                         />
-                        <span className="text-xs text-muted">Send</span>
+                        <span className="text-xs text-muted">{f.status === "Failed" ? "Retry" : "Send"}</span>
                       </label>
 
                       {!f.emailSent ? (
-                        <button
-                          onClick={() => sendOne(f._id)}
-                          disabled={isSending}
-                          className="btn btn-sm btn-primary"
-                          title="Send follow-up email now"
-                        >
-                          {isSending ? (
-                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              />
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                              />
-                            </svg>
+                        <>
+                          {f.status === "Failed" ? (
+                            <button
+                              onClick={() => sendOne(f._id)}
+                              disabled={isSending}
+                              className="btn btn-sm btn-warning"
+                              title="Retry failed follow-up"
+                            >
+                              {isSending ? (
+                                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                  />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                  />
+                                </svg>
+                              )}
+                            </button>
                           ) : (
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                              />
-                            </svg>
+                            <button
+                              onClick={() => sendOne(f._id)}
+                              disabled={isSending}
+                              className="btn btn-sm btn-primary"
+                              title="Send follow-up email now"
+                            >
+                              {isSending ? (
+                                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                  />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                                  />
+                                </svg>
+                              )}
+                            </button>
                           )}
-                        </button>
+                        </>
                       ) : (
                         <span className="badge badge-success text-xs">Sent</span>
                       )}

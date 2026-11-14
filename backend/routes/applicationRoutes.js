@@ -160,38 +160,15 @@ router.post("/", async (req, res) => {
       }
     }
 
-    // Default auto follow-up: 3 days from now at 11:00 local server time (user can edit later)
-    let followUpDate = req.body.followUpDate ? new Date(req.body.followUpDate) : null;
-    if (!followUpDate || Number.isNaN(followUpDate.getTime())) {
-      followUpDate = new Date();
-      followUpDate.setDate(followUpDate.getDate() + 3);
-      followUpDate.setHours(11, 0, 0, 0);
-    }
-
     const application = await Application.create({
       ...req.body,
       company: companyId,
       companyName: companyName || req.body.companyName,
       contact: contactId,
       owner: req.userId,
-      followUpDate,
+      followUpDate: null, // Follow-ups are created only after the first email is sent
       activity: [{ type: "created", message: "Application created", at: new Date() }],
     });
-
-    // Create a pending Email Follow-up so it appears in the Follow-ups page
-    try {
-      const FollowUp = (await import("../models/FollowUp.js")).default;
-      await FollowUp.create({
-        owner: req.userId,
-        application: application._id,
-        type: "Email Follow-up",
-        date: followUpDate,
-        note: "Auto-scheduled (3 days at 11:00). Edit if needed.",
-        status: "Pending",
-      });
-    } catch (e) {
-      console.error("Auto follow-up schedule failed:", e.message);
-    }
 
     await logUserEvent(req.authUser, "activity", `Created application: ${application.jobTitle}${application.companyName ? ` at ${application.companyName}` : ""}`, { applicationId: application._id }, req);
     res.status(201).json(application);
