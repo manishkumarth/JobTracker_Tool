@@ -130,7 +130,33 @@ test("parseExperienceRange understands ranges, decimals and plus syntax", () => 
   assert.deepEqual(parseExperienceRange("1 – 2 yrs"), { min: 1, max: 2, mid: 1.5 });
   assert.deepEqual(parseExperienceRange("2 to 2.5 years"), { min: 2, max: 2.5, mid: 2.25 });
   assert.deepEqual(parseExperienceRange("5+ years"), { min: 5, max: null, mid: 5 });
+  assert.deepEqual(parseExperienceRange("6 Months - 2 Years"), { min: 0.5, max: 2, mid: 1.25 });
+  assert.deepEqual(parseExperienceRange("18 months"), { min: 1.5, max: 1.5, mid: 1.5 });
+  assert.deepEqual(parseExperienceRange("3-6 months"), { min: 0.25, max: 0.5, mid: 0.375 });
   assert.equal(parseExperienceRange(""), null);
+});
+
+test("month-based job requirements pick the in-range resume", () => {
+  const resumes = [
+    // Listed first on purpose: the in-range resume must win, not the first one.
+    { _id: "experienced", originalName: "experienced.pdf", notes: "Full Stack Developer", experienceMin: 2.5, experienceMax: 3.5 },
+    { _id: "fits", originalName: "fits.pdf", notes: "Full Stack Developer", experienceMin: 1, experienceMax: 2 },
+  ];
+
+  const match = matchResumeForJob({
+    resumes,
+    jobTitle: "Full Stack Developer",
+    jobExperience: "6 Months - 2 Years",
+  });
+
+  assert.equal(match.matched, true);
+  assert.equal(match.resumeId, "fits");
+  assert.equal(match.experienceMatch, "match");
+  assert.equal(
+    scoreResume(resumes[0], "Full Stack Developer", "6 Months - 2 Years").experienceMatch,
+    "mismatch"
+  );
+  assert.equal(extractExperienceFromText("Looking for 6 months - 2 years of experience"), "6 months - 2 years");
 });
 
 test("experience range decides between resumes with the same role notes", () => {

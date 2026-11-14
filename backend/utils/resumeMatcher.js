@@ -61,8 +61,9 @@ function extractSeniority(text) {
 }
 
 /**
- * Parse any experience string into a numeric range.
- * Handles "3-5 years", "3 – 5 yrs", "2.4 Years", "2 to 3", "5+", "at least 2".
+ * Parse any experience string into a numeric range (in years).
+ * Handles "3-5 years", "3 – 5 yrs", "2.4 Years", "2 to 3", "6 Months - 2 Years",
+ * "18 months", "5+", "at least 2".
  * @returns {{min:number,max:number|null,mid:number}|null}
  */
 export function parseExperienceRange(value) {
@@ -75,18 +76,34 @@ export function parseExperienceRange(value) {
     .toLowerCase()
     .replace(/[\u2013\u2014]/g, "-"); // en/em dash -> hyphen
 
-  const range = text.match(/(\d+(?:\.\d+)?)\s*(?:-|to|and)\s*(\d+(?:\.\d+)?)/);
+  // Month-based requirements are common ("6 months - 2 years"), so every
+  // number is converted to years instead of being compared as a raw value.
+  const unitPattern = "(months?|mos?|mo|years?|yrs?|yr)";
+  const toYears = (raw, unit) => {
+    const num = parseFloat(raw);
+    if (!Number.isFinite(num)) return num;
+    const years = /^mo/i.test(unit || "") ? num / 12 : num;
+    return Math.round(years * 100) / 100;
+  };
+
+  const range = text.match(
+    new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${unitPattern}?\\s*(?:-|to)\\s*(\\d+(?:\\.\\d+)?)\\s*${unitPattern}?`)
+  );
   let min;
   let max;
 
   if (range) {
-    min = parseFloat(range[1]);
-    max = parseFloat(range[2]);
+    // Units can differ per bound: "6 months - 2 years".
+    const firstUnit = range[2] || range[4] || "";
+    const secondUnit = range[4] || range[2] || "";
+    min = toYears(range[1], firstUnit);
+    max = toYears(range[3], secondUnit);
     if (min > max) [min, max] = [max, min];
   } else {
-    const single = text.match(/(\d+(?:\.\d+)?)/);
+    const single = text.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${unitPattern}\\b`))
+      || text.match(/(\d+(?:\.\d+)?)/);
     if (!single) return null;
-    min = parseFloat(single[1]);
+    min = single[2] ? toYears(single[1], single[2]) : parseFloat(single[1]);
     max = /\d\s*\+/.test(text) ? null : min;
   }
 
@@ -100,7 +117,7 @@ function resumeExperienceRange(resume) {
   if (!Number.isFinite(min) && !Number.isFinite(max)) return null;
 
   const lo = Number.isFinite(min) ? min : max;
-  const hi = Number.isFinite(max) ? max : min;
+  const hi = Number.isFinite(max) ? max : lo;
   return { min: Math.min(lo, hi), max: Math.max(lo, hi), mid: (lo + hi) / 2 };
 }
 
@@ -114,10 +131,13 @@ export function extractExperienceFromText(text) {
   if (!value) return null;
 
   const patterns = [
-    /(\d+(?:\.\d+)?)\s*(?:-|to|\u2013|\u2014)\s*(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)/i,
+    // Ranges may mix months and years, e.g. "6 months - 2 years".
+    /(\d+(?:\.\d+)?)\s*(?:months?|mos?|mo|years?|yrs?|yr)?\s*(?:-|to|\u2013|\u2014)\s*(\d+(?:\.\d+)?)\s*(?:months?|mos?|mo|years?|yrs?|yr)\b/i,
     /(\d+(?:\.\d+)?)\s*\+\s*(?:years?|yrs?)/i,
     /(?:minimum|min\.?|at least|over)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:years?|yrs?)/i,
     /(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s*(?:of\s*)?(?:experience|exp)\b/i,
+    /(?:minimum|min\.?|at least|over)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:months?|mos?|mo)\b/i,
+    /(\d+(?:\.\d+)?)\s*(?:months?|mos?|mo)\s*(?:of\s*)?(?:experience|exp)\b/i,
   ];
 
   for (const pattern of patterns) {
