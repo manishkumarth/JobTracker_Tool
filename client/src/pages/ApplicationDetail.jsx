@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { getApplication, changeStatus, addNote, deleteApplication, updateApplication, APPLICATION_STATUSES } from "../api/applications.js";
-import { createFollowUp } from "../api/followups.js";
+import { listFollowUps, createFollowUp, updateFollowUp, sendFollowUpEmail } from "../api/followups.js";
 import { createInterview } from "../api/interviews.js";
 import { createCall } from "../api/calls.js";
 import { generateFollowUpEmail } from "../api/ai.js";
 import AIEmailGenerator from "../components/AIEmailGenerator.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { useGmailGuard } from "../context/GmailContext.jsx";
+import { formatInTimezone } from "../utils/datetime.js";
 
 const CALL_RESULTS = [
   "Connected",
@@ -91,6 +92,17 @@ export default function ApplicationDetail() {
     }
   }, [app]);
   const [followUpMenu, setFollowUpMenu] = useState(false);
+  const [followUps, setFollowUps] = useState([]);
+  const [followUpsLoading, setFollowUpsLoading] = useState(false);
+  const [sendingFollowUpIds, setSendingFollowUpIds] = useState([]);
+
+  const loadFollowUps = () => {
+    setFollowUpsLoading(true);
+    listFollowUps({ scope: "all", application: id })
+      .then(setFollowUps)
+      .catch(() => {})
+      .finally(() => setFollowUpsLoading(false));
+  };
 
   const load = () => {
     if (!id) {
@@ -102,6 +114,7 @@ export default function ApplicationDetail() {
       .then(setApp)
       .catch(() => toast.error("Failed to load application"))
       .finally(() => setLoading(false));
+    loadFollowUps();
   };
 
   useEffect(() => {
@@ -866,6 +879,116 @@ export default function ApplicationDetail() {
                   Schedule Follow-up
                 </button>
               </form>
+            </div>
+
+            {/* Follow-ups List */}
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
+                <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Follow-ups ({followUps.length})
+              </h2>
+              {followUpsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="flex items-center gap-3 animate-pulse">
+                      <div className="skeleton h-8 w-8 rounded-lg shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="skeleton h-4 w-48 rounded" />
+                        <div className="skeleton h-3 w-32 rounded" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : followUps.length === 0 ? (
+                <p className="text-sm text-muted text-center py-4">No follow-ups scheduled yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {followUps.map((f) => (
+                    <div
+                      key={f._id}
+                      className={`p-3 rounded-xl border transition-colors ${f.status === "Failed" ? "border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30" : f.status === "Completed" ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30" : "border-gray-200 dark:border-gray-800"}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`badge ${f.status === "Failed" ? "badge-danger" : f.status === "Completed" ? "badge-success" : "badge-warning"}`}>
+                              {f.status}
+                            </span>
+                            <span className="text-xs text-muted">{f.type}</span>
+                          </div>
+                          <p className="text-sm text-primary mt-1">{formatInTimezone(f.date)}</p>
+                          {f.note && <p className="text-xs text-muted mt-1 truncate">{f.note}</p>}
+                          {f.emailSent && (
+                            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">✓ Follow-up email sent</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {!f.emailSent && f.status !== "Completed" && (
+                            <button
+                              onClick={async () => {
+                                setSendingFollowUpIds((prev) => [...prev, f._id]);
+                                try {
+                                  await sendFollowUpEmail(f._id);
+                                  toast.success("Follow-up sent");
+                                  loadFollowUps();
+                                } catch (err) {
+                                  toast.error(err.response?.data?.message || "Failed to send");
+                                } finally {
+                                  setSendingFollowUpIds((prev) => prev.filter((id) => id !== f._id));
+                                }
+                              }}
+                              disabled={sendingFollowUpIds.includes(f._id)}
+                              className={`btn btn-sm ${f.status === "Failed" ? "btn-warning" : "btn-primary"}`}
+                            >
+                              {sendingFollowUpIds.includes(f._id) ? (
+                                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                              ) : f.status === "Failed" ? (
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                </svg>
+                              )}
+                            </button>
+                          )}
+                          <button
+                            onClick={async () => {
+                              await updateFollowUp(f._id, { disabled: !f.disabled });
+                              loadFollowUps();
+                              toast.success(f.disabled ? "Follow-up enabled" : "Follow-up disabled");
+                            }}
+                            className="text-xs text-muted hover:text-primary underline"
+                          >
+                            {f.disabled ? "Enable" : "Disable"}
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm("Delete this follow-up?")) return;
+                              try {
+                                await deleteFollowUp(f._id);
+                                loadFollowUps();
+                                toast.success("Follow-up deleted");
+                              } catch {
+                                toast.error("Failed to delete");
+                              }
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 underline"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Schedule Interview */}
