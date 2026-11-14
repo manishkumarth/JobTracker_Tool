@@ -11,6 +11,27 @@ const userSchema = new mongoose.Schema(
     gmailAppPasswordEnc: { type: String, default: "" }, // encrypted app password
     gmailConnected: { type: Boolean, default: false },
 
+    // Multiple Gmail sender accounts. Each app password is encrypted at rest.
+    // The legacy gmail* fields above stay in sync with the default account so
+    // older single-account code paths keep working.
+    emailAccounts: [
+      {
+        address: { type: String, required: true, lowercase: true, trim: true },
+        label: { type: String, default: "" },
+        appPasswordEnc: { type: String, required: true },
+        enabled: { type: Boolean, default: true },
+        isDefault: { type: Boolean, default: false },
+        lastTestedAt: { type: Date, default: null },
+        lastTestOk: { type: Boolean, default: null },
+        lastError: { type: String, default: "" },
+        // Per-account scheduling preference used by the email composer.
+        scheduleAction: { type: String, enum: ["now", "schedule"], default: "schedule" },
+        scheduleTime: { type: String, default: "11:00" }, // HH:mm, e.g. "11:00", "12:00", "16:00"
+        scheduleTimezone: { type: String, default: "Asia/Kolkata" },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+
     // Account status / admin
     isAdmin: { type: Boolean, default: false },
     isDisabled: { type: Boolean, default: false },

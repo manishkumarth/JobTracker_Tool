@@ -23,6 +23,9 @@ import whatsappRoutes from "./routes/whatsappRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import cronRoutes from "./routes/cronRoutes.js";
 import extensionRoutes from "./routes/extensionRoutes.js";
+import emailAccountRoutes from "./routes/emailAccountRoutes.js";
+import scheduledEmailRoutes from "./routes/scheduledEmailRoutes.js";
+import { startScheduler, opportunisticSchedulerTick } from "./services/scheduler.js";
 
 dotenv.config();
 connectDB();
@@ -40,6 +43,13 @@ app.use(
   })
 );
 app.use(express.json({ limit: "2mb" }));
+
+// Serverless-safe scheduler heartbeat: on Vercel there is no worker process,
+// so due emails are also processed when the API is in use (throttled inside).
+app.use("/api", (req, res, next) => {
+  opportunisticSchedulerTick();
+  next();
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/contacts", contactRoutes);
@@ -62,6 +72,8 @@ app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/cron", cronRoutes);
 app.use("/api/ext", extensionRoutes);
+app.use("/api/email-accounts", emailAccountRoutes);
+app.use("/api/scheduled-emails", scheduledEmailRoutes);
 
 app.get("/", (req, res) => res.send("Job Application CRM API running"));
 
@@ -74,7 +86,10 @@ app.use((err, req, res, next) => {
 // Only listen when running locally (not on Vercel)
 const PORT = process.env.PORT || 5000;
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    startScheduler();
+  });
 }
 
 export default app;

@@ -88,8 +88,24 @@ router.post("/login", async (req, res) => {
 
 // GET /api/auth/me
 router.get("/me", authMiddleware, async (req, res) => {
-  const user = await User.findById(req.userId).select("-password -gmailAppPasswordEnc");
-  res.json(user);
+  const user = await User.findById(req.userId).select(
+    "-password -gmailAppPasswordEnc -emailAccounts.appPasswordEnc"
+  );
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  // Belt-and-braces: never return any credential material, even if the select
+  // projection changes in the future.
+  const safe = user.toObject();
+  safe.emailAccounts = (safe.emailAccounts || []).map((account) => {
+    const { appPasswordEnc, ...rest } = account;
+    return rest;
+  });
+  safe.aiProviders = (safe.aiProviders || []).map((provider) => {
+    const { apiKeyEnc, ...rest } = provider;
+    return { ...rest, connected: !!apiKeyEnc };
+  });
+
+  res.json(safe);
 });
 
 // POST /api/auth/logout - record the logout time in the user log
@@ -106,8 +122,33 @@ router.post("/connect-gmail", authMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Gmail address and app password are required" });
     }
     const user = await User.findById(req.userId);
-    user.gmailAddress = gmailAddress.toLowerCase();
-    user.gmailAppPasswordEnc = encrypt(appPassword);
+    const email = gmailAddress.toLowerCase().trim();
+    const encrypted = encrypt(appPassword);
+
+    if (!Array.isArray(user.emailAccounts)) user.emailAccounts = [];
+    const existing = user.emailAccounts.find((a) => a.address === email);
+
+    if (existing) {
+      existing.appPasswordEnc = encrypted;
+      existing.enabled = true;
+      existing.lastTestedAt = null;
+      existing.lastTestOk = null;
+      existing.lastError = "";
+    } else {
+      user.emailAccounts.push({
+        address: email,
+        label: "Primary",
+        appPasswordEnc: encrypted,
+        enabled: true,
+        isDefault: false,
+      });
+    }
+    user.emailAccounts.forEach((a) => {
+      a.isDefault = a.address === email;
+    });
+
+    user.gmailAddress = email;
+    user.gmailAppPasswordEnc = encrypted;
     user.gmailConnected = true;
     await user.save();
     await logUserEvent(user, "activity", `Connected Gmail (${user.gmailAddress})`, {}, req);
@@ -124,6 +165,7 @@ router.post("/disconnect-gmail", authMiddleware, async (req, res) => {
     user.gmailAddress = "";
     user.gmailAppPasswordEnc = "";
     user.gmailConnected = false;
+    user.emailAccounts = [];
     await user.save();
     await logUserEvent(user, "activity", "Disconnected Gmail", {}, req);
     res.json({ message: "Gmail disconnected" });

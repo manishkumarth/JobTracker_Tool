@@ -60,10 +60,84 @@ function extractSeniority(text) {
   return null;
 }
 
-function extractYears(text) {
-  const t = String(text || "").toLowerCase();
-  const match = t.match(/(\d+)\s*years?/);
-  return match ? parseInt(match[1], 10) : null;
+/**
+ * Parse any experience string into a numeric range.
+ * Handles "3-5 years", "3 – 5 yrs", "2.4 Years", "2 to 3", "5+", "at least 2".
+ * @returns {{min:number,max:number|null,mid:number}|null}
+ */
+export function parseExperienceRange(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? { min: value, max: value, mid: value } : null;
+  }
+
+  const text = String(value)
+    .toLowerCase()
+    .replace(/[\u2013\u2014]/g, "-"); // en/em dash -> hyphen
+
+  const range = text.match(/(\d+(?:\.\d+)?)\s*(?:-|to|and)\s*(\d+(?:\.\d+)?)/);
+  let min;
+  let max;
+
+  if (range) {
+    min = parseFloat(range[1]);
+    max = parseFloat(range[2]);
+    if (min > max) [min, max] = [max, min];
+  } else {
+    const single = text.match(/(\d+(?:\.\d+)?)/);
+    if (!single) return null;
+    min = parseFloat(single[1]);
+    max = /\d\s*\+/.test(text) ? null : min;
+  }
+
+  return { min, max, mid: max == null ? min : (min + max) / 2 };
+}
+
+// The experience range configured on a resume document (min/max fields).
+function resumeExperienceRange(resume) {
+  const min = resume?.experienceMin != null && resume.experienceMin !== "" ? Number(resume.experienceMin) : null;
+  const max = resume?.experienceMax != null && resume.experienceMax !== "" ? Number(resume.experienceMax) : null;
+  if (!Number.isFinite(min) && !Number.isFinite(max)) return null;
+
+  const lo = Number.isFinite(min) ? min : max;
+  const hi = Number.isFinite(max) ? max : min;
+  return { min: Math.min(lo, hi), max: Math.max(lo, hi), mid: (lo + hi) / 2 };
+}
+
+/**
+ * Pull an experience requirement out of free text such as a job description.
+ * Deliberately strict (needs "years/yrs" nearby) so numbers like "60% marks"
+ * or salary figures are not mistaken for experience.
+ */
+export function extractExperienceFromText(text) {
+  const value = String(text || "");
+  if (!value) return null;
+
+  const patterns = [
+    /(\d+(?:\.\d+)?)\s*(?:-|to|\u2013|\u2014)\s*(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)/i,
+    /(\d+(?:\.\d+)?)\s*\+\s*(?:years?|yrs?)/i,
+    /(?:minimum|min\.?|at least|over)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:years?|yrs?)/i,
+    /(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s*(?:of\s*)?(?:experience|exp)\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (match) return match[0];
+  }
+  return null;
+}
+
+/**
+ * Resolve the experience requirement for an application. Prefers the explicit
+ * field, then falls back to the job description / title.
+ */
+export function getApplicationExperience(application = {}) {
+  return (
+    application?.experienceRequired ||
+    extractExperienceFromText(application?.jobDescription) ||
+    extractExperienceFromText(application?.jobTitle) ||
+    null
+  );
 }
 
 function experienceLevelFromYears(years) {
@@ -74,11 +148,24 @@ function experienceLevelFromYears(years) {
   return "executive";
 }
 
-function experienceCompatibility(profileExperience, jobTitle) {
+function experienceCompatibility(profileExperience, jobTitle, jobExperience = null) {
   if (!profileExperience) return 0;
+
+  // Prefer an exact numeric-range comparison when both sides expose numbers.
+  const jobRange = parseExperienceRange(jobExperience) || parseExperienceRange(jobTitle);
+  const profileRange = parseExperienceRange(profileExperience);
+
+  if (jobRange && profileRange) {
+    const jobMax = jobRange.max == null ? jobRange.min : jobRange.max;
+    const overlap = jobRange.min <= profileRange.max && profileRange.min <= jobMax;
+    if (overlap) return 1;
+    if (profileRange.mid > jobMax) return 0.25; // overqualified: still sendable
+    return 0; // underqualified
+  }
+
   const jobSeniority = extractSeniority(jobTitle);
-  const profileYears = extractYears(profileExperience);
-  const profileLevel = profileYears ? experienceLevelFromYears(profileYears) : extractSeniority(profileExperience);
+  const profileYears = profileRange ? profileRange.mid : null;
+  const profileLevel = profileYears != null ? experienceLevelFromYears(profileYears) : extractSeniority(profileExperience);
 
   if (!jobSeniority || !profileLevel) return 0;
 
@@ -122,10 +209,10 @@ function notePhrases(notes) {
  */
 export function scoreResume(resume, jobTitle, jobExperience = null) {
   const jobTokens = new Set(tokenize(jobTitle));
-  if (!jobTokens.size) return { score: 0, matchedTerms: [] };
+  if (!jobTokens.size) return { score: 0, matchedTerms: [], experienceMatch: null };
 
   const noteTokens = tokenize(resume?.notes);
-  if (!noteTokens.length) return { score: 0, matchedTerms: [] };
+  if (!noteTokens.length) return { score: 0, matchedTerms: [], experienceMatch: null };
 
   const matchedTerms = [];
   for (const token of new Set(noteTokens)) {
@@ -143,18 +230,38 @@ export function scoreResume(resume, jobTitle, jobExperience = null) {
     }
   }
 
-  // Experience range matching: if job has experienceRequired and resume has
-  // experienceMin/experienceMax, check if job experience falls within range.
-  if (jobExperience != null && resume.experienceMin != null && resume.experienceMax != null) {
-    const jobYears = parseFloat(String(jobExperience));
-    if (!Number.isNaN(jobYears) && jobYears >= resume.experienceMin && jobYears <= resume.experienceMax) {
-      score += 2; // strong bonus when experience range matches
-    } else if (!Number.isNaN(jobYears)) {
-      score -= 1; // slight penalty when experience doesn't match
+  // Experience range matching: job requirement (e.g. "3-5 years", "2.4 Years")
+  // against the range configured on the resume (experienceMin/Max).
+  const jobRange = parseExperienceRange(jobExperience);
+  const resumeRange = resumeExperienceRange(resume);
+  let experienceMatch = null;
+  let experienceDistance = null;
+
+  if (jobRange && resumeRange) {
+    const jobMax = jobRange.max == null ? jobRange.min : jobRange.max;
+    const overlaps = jobRange.min <= resumeRange.max && resumeRange.min <= jobMax;
+
+    if (overlaps) {
+      score += 2; // strong bonus when the job requirement sits in the resume range
+      if (jobRange.mid >= resumeRange.min && jobRange.mid <= resumeRange.max) score += 1;
+      experienceMatch = "match";
+      experienceDistance = 0;
+    } else {
+      score -= 1; // mild penalty when the ranges do not overlap
+      experienceMatch = "mismatch";
+      // Gap in years, used as a tiebreaker so the closest resume wins
+      // (e.g. a 3–5 year job prefers a 2–2.5 resume over a 1–2 one).
+      const gap =
+        jobRange.min > resumeRange.max
+          ? jobRange.min - resumeRange.max
+          : resumeRange.min - jobMax;
+      experienceDistance = Math.max(0, Math.round(gap * 100) / 100);
     }
+  } else if (jobRange && !resumeRange) {
+    experienceMatch = "unknown";
   }
 
-  return { score, matchedTerms };
+  return { score, matchedTerms, experienceMatch, experienceDistance, jobRange, resumeRange };
 }
 
 function publicResume(resume) {
@@ -164,8 +271,8 @@ function publicResume(resume) {
     originalName: resume.originalName,
     notes: resume.notes || "",
     size: resume.size,
-    experienceMin: resume.experienceMin || null,
-    experienceMax: resume.experienceMax || null,
+    experienceMin: resume.experienceMin ?? null,
+    experienceMax: resume.experienceMax ?? null,
   };
 }
 
@@ -200,13 +307,24 @@ export function matchResumeForJob({ resumes = [], jobTitle = "", profileExperien
 
   let best = null;
   for (const resume of withNotes) {
-    const { score, matchedTerms } = scoreResume(resume, title, jobExperience);
+    const { score, matchedTerms, experienceMatch, experienceDistance } = scoreResume(resume, title, jobExperience);
     if (score <= 0) continue;
     // Add experience compatibility bonus from profile-level experience
-    const expBonus = experienceCompatibility(profileExperience, title);
-    // Add resume-specific experience range bonus (already part of score via scoreResume)
+    const expBonus = experienceCompatibility(profileExperience, title, jobExperience);
     const finalScore = score + expBonus;
-    if (!best || finalScore > best.score) best = { resume, score: finalScore, matchedTerms };
+
+    const isBetter =
+      !best ||
+      finalScore > best.score ||
+      // When scores tie, prefer the resume whose experience range is closest
+      // to the job requirement (both non-overlapping ranges get the same -1).
+      (finalScore === best.score &&
+        experienceDistance != null &&
+        (best.experienceDistance == null || experienceDistance < best.experienceDistance));
+
+    if (isBetter) {
+      best = { resume, score: finalScore, matchedTerms, experienceMatch, experienceDistance };
+    }
   }
 
   if (!best) return { ...base, reason: "no_matching_resume" };
@@ -217,6 +335,7 @@ export function matchResumeForJob({ resumes = [], jobTitle = "", profileExperien
     resumeId: String(best.resume._id),
     score: best.score,
     matchedTerms: best.matchedTerms,
+    experienceMatch: best.experienceMatch,
     reason: null,
     jobTitle: title,
   };
@@ -226,8 +345,8 @@ export function matchResumeForJob({ resumes = [], jobTitle = "", profileExperien
  * Confirm a specific resume is a valid match for the job title.
  * Used by the mail API so a client cannot bypass matching by sending any id.
  */
-export function validateResumeForJob({ resumes = [], resumeId, jobTitle = "" } = {}) {
-  const match = matchResumeForJob({ resumes, jobTitle });
+export function validateResumeForJob({ resumes = [], resumeId, jobTitle = "", jobExperience = null, profileExperience = "" } = {}) {
+  const match = matchResumeForJob({ resumes, jobTitle, jobExperience, profileExperience });
   if (!match.matched) return { ...match, valid: false };
   const valid = String(match.resumeId) === String(resumeId);
   return { ...match, valid };
@@ -235,11 +354,19 @@ export function validateResumeForJob({ resumes = [], resumeId, jobTitle = "" } =
 
 // Handy for the client's "no match" explanation: every resume + whether it
 // matched, without ever exposing Cloudinary URLs.
-export function describeResumeMatches({ resumes = [], jobTitle = "" } = {}) {
+export function describeResumeMatches({ resumes = [], jobTitle = "", jobExperience = null } = {}) {
   const list = Array.isArray(resumes) ? resumes : [];
   return list.map((resume) => {
     const notes = String(resume?.notes || "").trim();
-    const { score, matchedTerms } = notes ? scoreResume(resume, jobTitle) : { score: 0, matchedTerms: [] };
-    return { ...publicResume(resume), matched: score > 0, score, matchedTerms };
+    const result = notes
+      ? scoreResume(resume, jobTitle, jobExperience)
+      : { score: 0, matchedTerms: [], experienceMatch: null };
+    return {
+      ...publicResume(resume),
+      matched: result.score > 0,
+      score: result.score,
+      matchedTerms: result.matchedTerms,
+      experienceMatch: result.experienceMatch || null,
+    };
   });
 }

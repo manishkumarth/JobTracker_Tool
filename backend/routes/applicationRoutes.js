@@ -7,7 +7,7 @@ import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
-import { matchResumeForJob, describeResumeMatches } from "../utils/resumeMatcher.js";
+import { matchResumeForJob, describeResumeMatches, getApplicationExperience } from "../utils/resumeMatcher.js";
 import EmailLog from "../models/EmailLog.js";
 import FollowUp from "../models/FollowUp.js";
 
@@ -66,14 +66,23 @@ router.post("/", async (req, res) => {
     if (req.body.checkResume && req.body.jobSource === "LinkedIn") {
       const profile = await CandidateProfile.findOne({ owner: req.userId });
       const resumes = profile?.resumes || [];
-      const match = matchResumeForJob({ resumes, jobTitle: req.body.jobTitle });
+      const match = matchResumeForJob({
+        resumes,
+        jobTitle: req.body.jobTitle,
+        profileExperience: profile?.experience || "",
+        jobExperience: getApplicationExperience(req.body),
+      });
       if (!match.matched) {
         return res.status(422).json({
           code: "NO_RESUME_MATCH",
           reason: match.reason,
           message: `No resume note matches the job title "${req.body.jobTitle}". Post rejected — add role notes (e.g. "Full Stack Developer") to a resume in your profile first.`,
           jobTitle: req.body.jobTitle,
-          resumes: describeResumeMatches({ resumes, jobTitle: req.body.jobTitle }),
+          resumes: describeResumeMatches({
+            resumes,
+            jobTitle: req.body.jobTitle,
+            jobExperience: getApplicationExperience(req.body),
+          }),
         });
       }
     }
@@ -362,7 +371,12 @@ router.get("/:id/resume-match", async (req, res) => {
 
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const resumes = profile?.resumes || [];
-    const match = matchResumeForJob({ resumes, jobTitle: application.jobTitle, profileExperience: profile?.experience || "", jobExperience: application.experienceRequired || null });
+    const match = matchResumeForJob({
+      resumes,
+      jobTitle: application.jobTitle,
+      profileExperience: profile?.experience || "",
+      jobExperience: getApplicationExperience(application),
+    });
     const alreadySent = await EmailLog.findOne({
       owner: req.userId,
       application: application._id,
@@ -377,7 +391,11 @@ router.get("/:id/resume-match", async (req, res) => {
 
     res.json({
       ...match,
-      resumes: describeResumeMatches({ resumes, jobTitle: application.jobTitle }),
+      resumes: describeResumeMatches({
+        resumes,
+        jobTitle: application.jobTitle,
+        jobExperience: getApplicationExperience(application),
+      }),
       hasRecipient,
       emailAlreadySent: !!alreadySent,
       alreadySentAt: alreadySent?.sentAt || null,

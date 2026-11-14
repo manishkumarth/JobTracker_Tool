@@ -23,6 +23,9 @@ import whatsappRoutes from "../backend/routes/whatsappRoutes.js";
 import adminRoutes from "../backend/routes/adminRoutes.js";
 import cronRoutes from "../backend/routes/cronRoutes.js";
 import extensionRoutes from "../backend/routes/extensionRoutes.js";
+import emailAccountRoutes from "../backend/routes/emailAccountRoutes.js";
+import scheduledEmailRoutes from "../backend/routes/scheduledEmailRoutes.js";
+import { opportunisticSchedulerTick } from "../backend/services/scheduler.js";
 
 dotenv.config();
 
@@ -51,6 +54,12 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// Serverless scheduler heartbeat — processes due emails while the API is used.
+app.use("/api", (req, res, next) => {
+  opportunisticSchedulerTick();
+  next();
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/mail", mailRoutes);
@@ -72,6 +81,8 @@ app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/cron", cronRoutes);
 app.use("/api/ext", extensionRoutes);
+app.use("/api/email-accounts", emailAccountRoutes);
+app.use("/api/scheduled-emails", scheduledEmailRoutes);
 
 app.get("/", (req, res) => res.send("Job Application CRM API running"));
 

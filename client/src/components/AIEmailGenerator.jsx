@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { getResumeMatch } from "../api/applications.js";
-import { autoSendApplicationEmail } from "../api/emails.js";
+import { autoSendApplicationEmail, draftApplicationEmail, sendMail } from "../api/emails.js";
+import { createScheduledEmail } from "../api/scheduledEmails.js";
+import { listEmailAccounts } from "../api/emailAccounts.js";
+import {
+  DEFAULT_TIMEZONE,
+  QUICK_SCHEDULE_SLOTS,
+  formatInTimezone,
+  slotLabel,
+  upcomingSlotInputs,
+  zonedTimeToUtc,
+} from "../utils/datetime.js";
+import ScheduleTimePicker from "./ScheduleTimePicker.jsx";
 import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const noMatchMessage = (match) => {
@@ -20,13 +31,23 @@ const noMatchMessage = (match) => {
   }
 };
 
-export default function AIEmailGenerator({ application, onSent }) {
+export default function AIEmailGenerator({ application, onSent, onScheduled }) {
   const { requireGmail } = useGmailGuard();
   const [match, setMatch] = useState(null);
   const [matchLoading, setMatchLoading] = useState(true);
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState("");
+  const [draft, setDraft] = useState(null); // { subject, body, resume, recipient, recipientName }
+  const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState(null);
+  const [mode, setMode] = useState("now"); // now | schedule
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
+  const [schedule, setSchedule] = useState(() =>
+    upcomingSlotInputs(QUICK_SCHEDULE_SLOTS[0].value, DEFAULT_TIMEZONE)
+  );
   const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const appliedAccountRef = useRef(null);
 
   const loadMatch = useCallback(async () => {
     setMatchLoading(true);
@@ -40,45 +61,87 @@ export default function AIEmailGenerator({ application, onSent }) {
     }
   }, [application._id]);
 
+  const loadAccounts = useCallback(async () => {
+    try {
+      const data = await listEmailAccounts();
+      const list = data.accounts || [];
+      setAccounts(list);
+      setAccountId((prev) => {
+        if (prev && list.some((a) => a._id === prev)) return prev;
+        return list.find((a) => a.isDefault && a.enabled) || list.find((a) => a.enabled) || list[0] || "";
+      });
+    } catch {
+      setAccounts([]);
+    }
+  }, []);
+
   useEffect(() => {
     loadMatch();
-  }, [loadMatch]);
+    loadAccounts();
+  }, [loadMatch, loadAccounts]);
 
-  const autoSend = async () => {
-    if (sending) return;
-    if (match && !match.hasRecipient) {
-      return toast.error("Add an HR email or link a contact on this application first.");
+  const matched = !!match?.matched;
+  const alreadySent = !!(match?.emailAlreadySent || draft?.emailAlreadySent);
+  const hasRecipient = draft
+    ? draft.hasRecipient !== false && (!!draft.recipient || !!draft.recipientName || match?.hasRecipient !== false)
+    : match
+      ? match.hasRecipient !== false
+      : true;
+  const enabledAccounts = useMemo(() => accounts.filter((a) => a.enabled), [accounts]);
+  const selectedAccount = enabledAccounts.find((a) => a._id === accountId) || null;
+
+  // Each Gmail account can carry its own scheduling preference. Apply it when
+  // the user switches sender — not on first load, so the composer keeps its
+  // previous Send Now default for existing accounts.
+  useEffect(() => {
+    if (!selectedAccount) return;
+    if (appliedAccountRef.current === null) {
+      appliedAccountRef.current = selectedAccount._id;
+      return;
     }
-    if (!requireGmail()) return;
+    if (appliedAccountRef.current === selectedAccount._id) return;
+    appliedAccountRef.current = selectedAccount._id;
 
-    setSending(true);
+    setMode(selectedAccount.scheduleAction === "now" ? "now" : "schedule");
+    const accountTimezone = selectedAccount.scheduleTimezone || DEFAULT_TIMEZONE;
+    const accountTime = selectedAccount.scheduleTime || QUICK_SCHEDULE_SLOTS[0].value;
+    setTimezone(accountTimezone);
+    setSchedule(upcomingSlotInputs(accountTime, accountTimezone));
+  }, [selectedAccount]);
+
+  const resetPreview = () => {
+    setDraft(null);
+    setError(null);
+    setResult(null);
+  };
+
+  const generate = async () => {
+    if (generating) return;
+    if (match && !match.matched) {
+      toast.error(noMatchMessage(match));
+      return;
+    }
+    setGenerating(true);
     setError(null);
     setResult(null);
     try {
-      const data = await autoSendApplicationEmail(application._id);
-      const sent = (data.results || []).filter((r) => r.status === "sent").length;
-      if (sent > 0) {
-        setResult({
-          subject: data.draft?.subject,
-          recipient: data.results.find((r) => r.status === "sent")?.email,
-          resume: data.resume,
-        });
-        toast.success(
-          data.resume?.originalName
-            ? `Email sent with ${data.resume.originalName}`
-            : "Email sent successfully"
-        );
-        onSent?.();
-        loadMatch();
-      } else {
-        const failed = (data.results || []).find((r) => r.status === "failed");
-        setError(failed?.error || "Email could not be sent. Check Email History for details.");
-        toast.error("Send failed — check Email History for details");
-      }
+      const data = await draftApplicationEmail(application._id);
+      setDraft({
+        subject: data.draft?.subject || "",
+        body: data.draft?.body || "",
+        resume: data.resume,
+        recipient: data.recipient,
+        recipientName: data.recipientName,
+        contactId: data.contactId || null,
+        hasRecipient: data.hasRecipient,
+        emailAlreadySent: data.emailAlreadySent,
+        experienceMatch: data.experienceMatch,
+      });
+      toast.success("AI draft ready — review and edit before sending");
     } catch (err) {
       const status = err.response?.status;
       const data = err.response?.data || {};
-      setError(data.message || "Failed to send email");
+      setError(data.message || "Failed to generate the draft");
       if (status === 422) {
         setMatch((prev) => ({
           ...(prev || {}),
@@ -88,16 +151,148 @@ export default function AIEmailGenerator({ application, onSent }) {
           resumes: data.resumes || prev?.resumes || [],
         }));
       }
+      toast.error(data.message || "Failed to generate the draft");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const buildScheduleIso = () => {
+    const utcDate = zonedTimeToUtc(schedule.date, schedule.time, timezone);
+    if (!utcDate) {
+      toast.error("Choose a valid date and time");
+      return null;
+    }
+    if (utcDate.getTime() < Date.now() - 60 * 1000) {
+      toast.error("Scheduled time must be in the future");
+      return null;
+    }
+    return utcDate.toISOString();
+  };
+
+  const sendNow = async () => {
+    if (!draft || sending) return;
+    if (!requireGmail()) return;
+    if (!draft.subject.trim() || !draft.body.trim()) {
+      return toast.error("Subject and message are required");
+    }
+    setSending(true);
+    setError(null);
+    setResult(null);
+    try {
+      const payload = {
+        applicationId: application._id,
+        subject: draft.subject,
+        message: draft.body,
+        resumeId: draft.resume?._id,
+        accountId: accountId || undefined,
+        isAiGenerated: true,
+        emailType: "Job Application",
+      };
+      if (draft.contactId) {
+        payload.contactIds = [draft.contactId];
+      } else {
+        payload.recipientEmail = draft.recipient;
+        payload.recipientName = draft.recipientName;
+      }
+      const data = await sendMail(payload);
+      const sent = (data.results || []).find((r) => r.status === "sent");
+      if (sent) {
+        setResult({ type: "sent", subject: draft.subject, recipient: sent.email, sender: selectedAccount?.address });
+        toast.success("Email sent successfully");
+        onSent?.();
+        loadMatch();
+      } else {
+        const failed = (data.results || []).find((r) => r.status === "failed");
+        setError(failed?.error || "Email could not be sent. Check Email History for details.");
+        toast.error("Send failed — check Email History for details");
+      }
+    } catch (err) {
+      const data = err.response?.data || {};
+      setError(data.message || "Failed to send email");
       toast.error(data.message || "Failed to send email");
     } finally {
       setSending(false);
     }
   };
 
-  const matched = !!match?.matched;
-  const alreadySent = !!match?.emailAlreadySent;
-  const hasRecipient = match ? match.hasRecipient !== false : true;
-  const disabled = sending || matchLoading || (match ? !matched || alreadySent || !hasRecipient : false);
+  const scheduleEmail = async () => {
+    if (!draft || sending) return;
+    if (!draft.subject.trim() || !draft.body.trim()) {
+      return toast.error("Subject and message are required");
+    }
+    if (!accountId) return toast.error("Add and select a Gmail account first");
+    const scheduledAt = buildScheduleIso();
+    if (!scheduledAt) return;
+
+    setSending(true);
+    setError(null);
+    setResult(null);
+    try {
+      const data = await createScheduledEmail({
+        applicationId: application._id,
+        accountId,
+        recipientEmail: draft.recipient,
+        recipientName: draft.recipientName,
+        subject: draft.subject,
+        body: draft.body,
+        resumeId: draft.resume?._id,
+        scheduledAt,
+        timezone,
+        emailType: "Job Application",
+        isAiGenerated: true,
+      });
+      setResult({
+        type: "scheduled",
+        subject: draft.subject,
+        recipient: data.email?.recipient,
+        sender: data.email?.senderAccount,
+        scheduledAt: data.email?.scheduledAt,
+        timezone: data.email?.timezone,
+      });
+      toast.success("Email scheduled");
+      onScheduled?.();
+      loadMatch();
+    } catch (err) {
+      const data = err.response?.data || {};
+      setError(data.message || "Failed to schedule email");
+      toast.error(data.message || "Failed to schedule email");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Legacy one-click flow is preserved for users who do not want the preview.
+  const quickSend = async () => {
+    if (sending) return;
+    if (match && !match.hasRecipient) {
+      return toast.error("Add an HR email or link a contact on this application first.");
+    }
+    if (!requireGmail()) return;
+    setSending(true);
+    setError(null);
+    setResult(null);
+    try {
+      const data = await autoSendApplicationEmail(application._id, { accountId: accountId || undefined });
+      const sent = (data.results || []).find((r) => r.status === "sent");
+      if (sent) {
+        setResult({ type: "sent", subject: data.draft?.subject, recipient: sent.email, sender: selectedAccount?.address });
+        toast.success("Email sent successfully");
+        onSent?.();
+        loadMatch();
+      } else {
+        const failed = (data.results || []).find((r) => r.status === "failed");
+        setError(failed?.error || "Email could not be sent. Check Email History for details.");
+        toast.error("Send failed — check Email History for details");
+      }
+    } catch (err) {
+      const data = err.response?.data || {};
+      setError(data.message || "Failed to send email");
+      toast.error(data.message || "Failed to send email");
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 space-y-4">
@@ -114,8 +309,8 @@ export default function AIEmailGenerator({ application, onSent }) {
       </div>
 
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Matches this job title against your resume role notes, generates the email with AI and sends it
-        with the matching resume attached.
+        Matches this job title + experience against your resumes, drafts the email with AI, then lets you
+        choose a sender account and send now or schedule it.
       </p>
 
       {/* Resume match preview */}
@@ -138,6 +333,12 @@ export default function AIEmailGenerator({ application, onSent }) {
           {match.resume?.notes && (
             <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">Notes: {match.resume.notes}</p>
           )}
+          {(match.resume?.experienceMin != null || match.resume?.experienceMax != null) && (
+            <p className="text-[11px] text-emerald-700/80 dark:text-emerald-500 mt-0.5">
+              Resume experience: {match.resume.experienceMin ?? "?"}–{match.resume.experienceMax ?? "?"} yrs
+              {application.experienceRequired ? ` · Job requires: ${application.experienceRequired}` : ""}
+            </p>
+          )}
           {!!match.matchedTerms?.length && (
             <p className="text-[11px] text-emerald-700/80 dark:text-emerald-500 mt-0.5">
               Matched on: {match.matchedTerms.join(", ")}
@@ -153,12 +354,13 @@ export default function AIEmailGenerator({ application, onSent }) {
               {match.resumes.map((r) => (
                 <li key={r._id} className="break-words">
                   • {r.originalName}: {r.notes ? r.notes : "no role notes"}
+                  {r.experienceMatch === "match" ? " ✓ experience" : ""}
                 </li>
               ))}
             </ul>
           )}
           <Link to="/profile" className="inline-flex items-center gap-1 text-xs font-semibold text-amber-900 dark:text-amber-300 underline underline-offset-2">
-            Update resume notes
+            Update resume notes & experience
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
@@ -176,10 +378,201 @@ export default function AIEmailGenerator({ application, onSent }) {
         </div>
       )}
 
-      {alreadySent && (
+      {alreadySent && !result && (
         <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 p-3 text-xs text-gray-600 dark:text-gray-400">
           An email was already sent for this application
           {match?.alreadySentAt ? ` on ${new Date(match.alreadySentAt).toLocaleString()}` : ""}. Duplicate sends are blocked.
+        </div>
+      )}
+
+      {/* Sender account */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-[11px] font-medium text-gray-600 dark:text-gray-400 block mb-1">Send from</label>
+          <select
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+            className="input w-full text-sm"
+            disabled={!enabledAccounts.length}
+          >
+            {enabledAccounts.length === 0 && <option value="">No enabled Gmail account</option>}
+            {enabledAccounts.map((a) => (
+              <option key={a._id} value={a._id}>
+                {a.address}{a.isDefault ? " (default)" : ""}
+              </option>
+            ))}
+          </select>
+          {!enabledAccounts.length && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+              <Link to="/ai-settings" className="underline">Add a Gmail account</Link> to send emails.
+            </p>
+          )}
+          {selectedAccount && (
+            <p className="text-[11px] text-muted mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className="badge text-[10px]">Account preference</span>
+              {selectedAccount.scheduleAction === "now"
+                ? "Send now"
+                : `Schedule at ${slotLabel(selectedAccount.scheduleTime)}`}
+              <span className="opacity-70">· {selectedAccount.scheduleTimezone || DEFAULT_TIMEZONE}</span>
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-gray-600 dark:text-gray-400 block mb-1">Send option</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("now")}
+              aria-pressed={mode === "now"}
+              className={`rounded-xl border px-2 py-2 text-left transition ${
+                mode === "now"
+                  ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 shadow-sm"
+                  : "border-color bg-white dark:bg-gray-900 text-secondary hover:border-emerald-300"
+              }`}
+            >
+              <span className="flex items-center gap-1.5 text-xs font-bold">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Send now
+              </span>
+              <span className="block text-[10px] opacity-70 mt-0.5">Immediately</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("schedule")}
+              aria-pressed={mode === "schedule"}
+              className={`rounded-xl border px-2 py-2 text-left transition ${
+                mode === "schedule"
+                  ? "border-brand-500 bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 shadow-sm"
+                  : "border-color bg-white dark:bg-gray-900 text-secondary hover:border-brand-300"
+              }`}
+            >
+              <span className="flex items-center gap-1.5 text-xs font-bold">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Schedule
+              </span>
+              <span className="block text-[10px] opacity-70 mt-0.5">Pick date & time</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {mode === "schedule" && (
+        <div className="rounded-xl border border-brand-200 dark:border-brand-900/60 bg-brand-50/40 dark:bg-brand-950/20 p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-semibold text-brand-800 dark:text-brand-300">When should it go out?</p>
+            <span className="badge badge-primary text-[10px]">Defaults to IST</span>
+          </div>
+          <ScheduleTimePicker
+            date={schedule.date}
+            time={schedule.time}
+            timezone={timezone}
+            onChange={(next) => {
+              setSchedule({ date: next.date, time: next.time });
+              setTimezone(next.timezone);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Preview / edit */}
+      {draft ? (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">Preview & edit</p>
+            <button type="button" onClick={resetPreview} className="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline">
+              Discard
+            </button>
+          </div>
+          <input
+            className="input w-full text-sm"
+            value={draft.subject}
+            onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))}
+            placeholder="Subject"
+          />
+          <textarea
+            rows={9}
+            className="input w-full text-sm font-normal"
+            value={draft.body}
+            onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
+            placeholder="Email body"
+          />
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            To: {draft.recipient || "—"} · Resume: {draft.resume?.originalName || "none"}
+            {draft.experienceMatch === "match" ? " · experience matches" : ""}
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            onClick={generate}
+            disabled={generating || matchLoading || (match ? !matched || !hasRecipient : false)}
+            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all"
+          >
+            {generating ? (
+              <>
+                <span className="inline-block animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
+                Generating draft…
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a1.117 1.117 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Generate AI Draft
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={quickSend}
+            disabled={sending || matchLoading || (match ? !matched || alreadySent || !hasRecipient : false)}
+            className="px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            title="Skip the preview and send immediately"
+          >
+            {sending ? "Sending…" : "Quick send"}
+          </button>
+        </div>
+      )}
+
+      {draft && (
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            onClick={mode === "schedule" ? scheduleEmail : sendNow}
+            disabled={sending || alreadySent || !hasRecipient || !selectedAccount || !!result}
+            className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all ${
+              mode === "schedule" ? "bg-brand-600 hover:bg-brand-700" : "bg-emerald-600 hover:bg-emerald-700"
+            }`}
+          >
+            {sending ? (
+              <>
+                <span className="inline-block animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
+                {mode === "schedule" ? "Scheduling…" : "Sending…"}
+              </>
+            ) : mode === "schedule" ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Schedule Email
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Send Now
+              </>
+            )}
+          </button>
+          <button type="button" onClick={generate} disabled={generating || sending} className="btn btn-secondary text-sm px-4">
+            {generating ? "Regenerating…" : "Regenerate"}
+          </button>
         </div>
       )}
 
@@ -189,35 +582,30 @@ export default function AIEmailGenerator({ application, onSent }) {
         </div>
       )}
 
-      {result && (
+      {result?.type === "sent" && (
         <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-1">
           <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Email sent successfully</p>
           {result.subject && <p className="text-xs text-emerald-800/90 dark:text-emerald-400 break-words">Subject: {result.subject}</p>}
           {result.recipient && <p className="text-xs text-emerald-800/90 dark:text-emerald-400 break-words">To: {result.recipient}</p>}
-          {result.resume?.originalName && <p className="text-xs text-emerald-800/90 dark:text-emerald-400 break-words">Attached: {result.resume.originalName}</p>}
+          {result.sender && <p className="text-xs text-emerald-800/90 dark:text-emerald-400 break-words">From: {result.sender}</p>}
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={autoSend}
-        disabled={disabled}
-        className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all"
-      >
-        {sending ? (
-          <>
-            <span className="inline-block animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
-            Matching resume, drafting &amp; sending…
-          </>
-        ) : (
-          <>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-            Auto Draft &amp; Send Email
-          </>
-        )}
-      </button>
+      {result?.type === "scheduled" && (
+        <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-1">
+          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Email scheduled</p>
+          {result.recipient && <p className="text-xs text-emerald-800/90 dark:text-emerald-400 break-words">To: {result.recipient}</p>}
+          {result.sender && <p className="text-xs text-emerald-800/90 dark:text-emerald-400 break-words">From: {result.sender}</p>}
+          {result.scheduledAt && (
+            <p className="text-xs text-emerald-800/90 dark:text-emerald-400 break-words">
+              At: {formatInTimezone(result.scheduledAt, result.timezone || timezone)}
+            </p>
+          )}
+          <Link to="/scheduled" className="inline-block text-xs font-semibold text-emerald-900 dark:text-emerald-300 underline underline-offset-2">
+            Open Scheduled Emails →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

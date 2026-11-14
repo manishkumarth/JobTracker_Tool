@@ -23,6 +23,10 @@ const emailLogSchema = new mongoose.Schema(
     subject: { type: String, required: true },
     body: { type: String, required: true },
 
+    // Gmail account used to send (public address only, never the password)
+    senderAccount: { type: String, default: "" },
+    senderAccountId: { type: mongoose.Schema.Types.ObjectId, default: null },
+
     sentAt: { type: Date, default: null },
     status: { type: String, enum: ["Draft", "Pending", "Sent", "Failed"], default: "Pending" },
     errorMessage: { type: String, default: "" },

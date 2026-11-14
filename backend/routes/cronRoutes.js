@@ -4,6 +4,7 @@ import Application from "../models/Application.js";
 import Contact from "../models/Contact.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import { sendFollowUpEmail } from "../utils/followUpSender.js";
+import { processDueScheduledEmails } from "../services/scheduler.js";
 import authMiddleware from "../middleware/auth.js";
 
 const router = express.Router();
@@ -57,6 +58,32 @@ router.get("/auto-followup", async (req, res) => {
     }
     const result = await runAutoFollowUps();
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/cron/process-scheduled-emails - invoked by Vercel Cron (or manually)
+// The CRON_SECRET header protects this endpoint because it sends real emails.
+router.get("/process-scheduled-emails", async (req, res) => {
+  try {
+    const secret = process.env.CRON_SECRET;
+    if (!secret) {
+      return res.status(503).json({
+        message: "CRON_SECRET is not configured. Set it in the server environment to enable the scheduler cron.",
+      });
+    }
+    if (req.headers.authorization !== `Bearer ${secret}`) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const limit = Math.min(50, Number(req.query.limit) || 20);
+    const result = await processDueScheduledEmails({ limit });
+    res.json({
+      processed: result.processed,
+      sent: result.sent,
+      failed: result.failed,
+      ranAt: result.ranAt,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

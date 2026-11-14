@@ -5,6 +5,8 @@ import {
   validateResumeForJob,
   describeResumeMatches,
   scoreResume,
+  parseExperienceRange,
+  extractExperienceFromText,
 } from "../utils/resumeMatcher.js";
 
 const resumes = [
@@ -120,4 +122,88 @@ test("describeResumeMatches explains every resume without leaking URLs", () => {
   assert.equal(react.matched, true);
   assert.equal(described.find((r) => r._id === "r-node").matched, false);
   assert.equal("cloudinaryUrl" in described[0], false);
+});
+
+test("parseExperienceRange understands ranges, decimals and plus syntax", () => {
+  assert.deepEqual(parseExperienceRange("3-5 years"), { min: 3, max: 5, mid: 4 });
+  assert.deepEqual(parseExperienceRange("2.4 Years"), { min: 2.4, max: 2.4, mid: 2.4 });
+  assert.deepEqual(parseExperienceRange("1 – 2 yrs"), { min: 1, max: 2, mid: 1.5 });
+  assert.deepEqual(parseExperienceRange("2 to 2.5 years"), { min: 2, max: 2.5, mid: 2.25 });
+  assert.deepEqual(parseExperienceRange("5+ years"), { min: 5, max: null, mid: 5 });
+  assert.equal(parseExperienceRange(""), null);
+});
+
+test("experience range decides between resumes with the same role notes", () => {
+  const ranged = [
+    { _id: "junior", originalName: "junior.pdf", notes: "Full Stack Developer", experienceMin: 1, experienceMax: 2 },
+    { _id: "senior", originalName: "senior.pdf", notes: "Full Stack Developer", experienceMin: 3, experienceMax: 5 },
+  ];
+
+  const seniorJob = matchResumeForJob({
+    resumes: ranged,
+    jobTitle: "Full Stack Developer",
+    jobExperience: "3-5 Years",
+  });
+  assert.equal(seniorJob.resumeId, "senior");
+  assert.equal(seniorJob.experienceMatch, "match");
+
+  const juniorJob = matchResumeForJob({
+    resumes: ranged,
+    jobTitle: "Full Stack Developer",
+    jobExperience: "1-2 Years",
+  });
+  assert.equal(juniorJob.resumeId, "junior");
+});
+
+test("decimal experience requirements are compared numerically, not with parseFloat", () => {
+  const resumesWithRange = [
+    { _id: "low", originalName: "low.pdf", notes: "React Developer", experienceMin: 0, experienceMax: 1.5 },
+    { _id: "high", originalName: "high.pdf", notes: "React Developer", experienceMin: 2, experienceMax: 2.5 },
+  ];
+
+  const match = matchResumeForJob({
+    resumes: resumesWithRange,
+    jobTitle: "React Developer",
+    jobExperience: "2 - 2.5 years",
+  });
+
+  assert.equal(match.resumeId, "high");
+  const low = scoreResume(resumesWithRange[0], "React Developer", "2 - 2.5 years");
+  const high = scoreResume(resumesWithRange[1], "React Developer", "2 - 2.5 years");
+  assert.equal(low.experienceMatch, "mismatch");
+  assert.equal(high.experienceMatch, "match");
+  assert.ok(high.score > low.score);
+});
+
+test("experience is extracted from a job description without picking unrelated numbers", () => {  const description =
+    "We need a Full Stack Developer with 3–5 years of experience. Bachelor's degree with minimum 60% aggregate marks required.";
+  assert.equal(extractExperienceFromText(description), "3–5 years");
+  assert.equal(extractExperienceFromText("Salary 12 LPA, 2+ years experience needed"), "2+ years");
+  assert.equal(extractExperienceFromText("Minimum of 2.5 years experience in React"), "Minimum of 2.5 years");
+  assert.equal(extractExperienceFromText("No experience number here, just 60% marks."), null);
+
+  const match = matchResumeForJob({
+    resumes: [
+      { _id: "a", originalName: "a.pdf", notes: "Full Stack Developer", experienceMin: 1, experienceMax: 2 },
+      { _id: "b", originalName: "b.pdf", notes: "Full Stack Developer", experienceMin: 3, experienceMax: 5 },
+    ],
+    jobTitle: "Full Stack Developer",
+    jobExperience: extractExperienceFromText(description),
+  });
+  assert.equal(match.resumeId, "b");
+});
+
+test("closest experience range wins when no range overlaps the job requirement", () => {
+  const match = matchResumeForJob({
+    resumes: [
+      { _id: "junior", originalName: "junior.pdf", notes: "Full Stack Developer", experienceMin: 1, experienceMax: 2 },
+      { _id: "mid", originalName: "mid.pdf", notes: "Full Stack Developer", experienceMin: 2, experienceMax: 2.5 },
+    ],
+    jobTitle: "Full Stack Developer (Frontend Focused) | 3-5 Years",
+    jobExperience: "3-5 Years",
+  });
+
+  assert.equal(match.matched, true);
+  assert.equal(match.resumeId, "mid");
+  assert.equal(match.experienceMatch, "mismatch");
 });

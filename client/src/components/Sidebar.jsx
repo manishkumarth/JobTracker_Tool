@@ -79,6 +79,16 @@ const links = [
     ),
   },
   {
+    to: "/scheduled",
+    label: "Scheduled Emails",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="4" width="16" height="14" rx="2" />
+        <path d="M2 8h16M6 2v4M14 2v4M7 12l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
     to: "/interviews",
     label: "Interviews",
     icon: (

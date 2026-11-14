@@ -7,12 +7,15 @@ import EmailLog from "../models/EmailLog.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
-import { getTransporter } from "../utils/mailer.js";
+import { getTransporter, createTransporter } from "../utils/mailer.js";
+import { resolveEmailAccount } from "../utils/emailAccounts.js";
+import { fetchBuffer } from "../utils/fetchBuffer.js";
+import { createScheduledEmail, toPublicScheduledEmail, DEFAULT_TIMEZONE } from "../services/scheduledEmailService.js";
 import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "../utils/tracking.js";
 import { generateApplicationEmail } from "../utils/emailWriter.js";
-import { matchResumeForJob, validateResumeForJob, describeResumeMatches } from "../utils/resumeMatcher.js";
+import { matchResumeForJob, validateResumeForJob, describeResumeMatches, getApplicationExperience } from "../utils/resumeMatcher.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -33,18 +36,7 @@ router.post("/upload", upload.single("file"), (req, res) => {
   res.json({ filename: req.file.originalname, buffer: true, originalName: req.file.originalname });
 });
 
-// Fetch file from URL as buffer (for Cloudinary resumes)
-import https from "https";
-const fetchBuffer = (url) => {
-  return new Promise((resolve, reject) => {
-    https.get(url, (response) => {
-      const chunks = [];
-      response.on("data", (chunk) => chunks.push(chunk));
-      response.on("end", () => resolve(Buffer.concat(chunks)));
-      response.on("error", reject);
-    }).on("error", reject);
-  });
-};
+// Fetch file from URL as buffer (for Cloudinary resumes) lives in utils/fetchBuffer.js
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -68,7 +60,7 @@ async function performSend(req, params) {
     contactIds, subject, message, resumeId, attachmentFilename,
     applicationId, companyId, emailType = "Job Application",
     isAiGenerated = false, templateId, allowResend = false,
-    recipientEmail, recipientName,
+    recipientEmail, recipientName, accountId = null,
   } = params;
 
   if ((!contactIds?.length && !recipientEmail) || !subject || !message) {
@@ -76,7 +68,11 @@ async function performSend(req, params) {
   }
 
   const user = await User.findById(req.userId);
-  const transporter = getTransporter(user);
+  if (!user) throw new HttpError(404, "User not found");
+
+  // Resolve the sender account (multi-account aware, legacy-compatible).
+  const account = await resolveEmailAccount(user, accountId);
+  const transporter = createTransporter(account.address, account.appPassword);
 
   // 24-hour dedup: block auto-send to the same recipient within 24 hours.
   // After 24 hours a new send is allowed.
@@ -143,6 +139,8 @@ async function performSend(req, params) {
         resumes: profile.resumes,
         resumeId,
         jobTitle: application.jobTitle,
+        jobExperience: getApplicationExperience(application),
+        profileExperience: profile.experience || "",
       });
       if (!validation.valid) {
         throw new HttpError(
@@ -192,13 +190,15 @@ async function performSend(req, params) {
       attachmentName: attachments[0]?.filename || "",
       resumeName,
       resumeSize,
+      senderAccount: account.address,
+      senderAccountId: account._id || null,
       trackingId,
       trackingEnabled,
     });
 
     try {
       await transporter.sendMail({
-        from: `"${user.name}" <${user.gmailAddress}>`,
+        from: `"${user.name}" <${account.address}>`,
         to: contact.email,
         subject,
         text: textContent,
@@ -258,13 +258,141 @@ router.post("/send", requireFeature("sendEmail"), async (req, res) => {
   }
 });
 
+const RESUME_REASON_MESSAGES = {
+  no_resumes: "You have not uploaded any resume yet.",
+  no_resume_notes: "None of your resumes has role notes. Add notes like \"Full Stack Developer\" or \"React Developer\" in your profile.",
+  no_matching_resume: (title) => `No resume note matches the job title "${title}".`,
+  missing_job_title: "This application has no job title to match against.",
+};
+
+function sendNoResumeMatch(res, { match, resumes, application }) {
+  const message = match.reason === "no_matching_resume"
+    ? RESUME_REASON_MESSAGES.no_matching_resume(application.jobTitle)
+    : RESUME_REASON_MESSAGES[match.reason] || "No resume matches this job title.";
+  return res.status(422).json({
+    code: "NO_RESUME_MATCH",
+    reason: match.reason,
+    message,
+    jobTitle: application.jobTitle,
+    resumes: describeResumeMatches({
+      resumes,
+      jobTitle: application.jobTitle,
+      jobExperience: getApplicationExperience(application),
+    }),
+  });
+}
+
+async function resolveApplicationRecipient({ userId, application }) {
+  let contactId = application.contact || null;
+  let contactEmail = "";
+  let contactName = "";
+  if (contactId) {
+    const contact = await Contact.findOne({ _id: contactId, owner: userId });
+    if (contact?.email) {
+      contactEmail = contact.email;
+      contactName = contact.name || "";
+    } else {
+      contactId = null;
+    }
+  }
+  if (!contactId && !application.hrEmail) {
+    throw new HttpError(400, "This application has no recruiter email. Add an HR email first.");
+  }
+  return {
+    contactId,
+    // Always expose a concrete address so the preview can show it and the
+    // inline-send fallback keeps working when the contact changes.
+    recipientEmail: contactEmail || application.hrEmail || "",
+    recipientName: contactName || application.hrName || "",
+  };
+}
+
+async function getOrGenerateDraft({
+  req, application, profile, tone, length, provider, model, subject, body, user,
+}) {
+  if (String(subject || "").trim() && String(body || "").trim()) {
+    return { subject: String(subject).trim(), body: String(body), generated: false };
+  }
+  const generated = await generateApplicationEmail({
+    profile,
+    application,
+    tone,
+    length,
+    userProviders: user?.aiProviders || [],
+    provider,
+    model,
+  });
+  return {
+    subject: String(subject || "").trim() || generated.subject,
+    body: String(body || "").trim() || generated.body,
+    generated: true,
+  };
+}
+
+// POST /api/mail/draft
+// Preview step: match resume → generate AI email, WITHOUT sending.
+router.post("/draft", requireFeature("aiEmail"), async (req, res) => {
+  try {
+    const { applicationId, tone, length, provider, model } = req.body;
+    if (!applicationId) throw new HttpError(400, "applicationId is required");
+
+    const application = await Application.findOne({ _id: applicationId, owner: req.userId });
+    if (!application) throw new HttpError(404, "Application not found");
+
+    const profile = await CandidateProfile.findOne({ owner: req.userId });
+    const resumes = profile?.resumes || [];
+    const match = matchResumeForJob({
+      resumes,
+      jobTitle: application.jobTitle,
+      profileExperience: profile?.experience || "",
+      jobExperience: getApplicationExperience(application),
+    });
+
+    if (!match.matched) return sendNoResumeMatch(res, { match, resumes, application });
+
+    const recipient = await resolveApplicationRecipient({ userId: req.userId, application });
+    const user = await User.findById(req.userId);
+    const draft = await getOrGenerateDraft({
+      req, application, profile, tone, length, provider, model, user,
+    });
+
+    const alreadySent = await EmailLog.findOne({
+      owner: req.userId,
+      application: application._id,
+      status: "Sent",
+      emailType: "Job Application",
+    });
+
+    res.json({
+      draft: { subject: draft.subject, body: draft.body },
+      resume: match.resume,
+      resumeId: match.resumeId,
+      matchedTerms: match.matchedTerms,
+      experienceMatch: match.experienceMatch,
+      recipient: recipient.recipientEmail,
+      recipientName: recipient.recipientName || application.hrName || "",
+      contactId: recipient.contactId ? String(recipient.contactId) : null,
+      hasRecipient: !!(recipient.contactId || recipient.recipientEmail),
+      emailAlreadySent: !!alreadySent,
+      alreadySentAt: alreadySent?.sentAt || null,
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // POST /api/mail/auto-send
-// One-click flow: match resume notes → generate AI email → send.
+// Match resume notes → generate (or use supplied) email → send now or schedule.
 // If no resume note matches the job title we return 422 and never fall back.
 router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail"), async (req, res) => {
   try {
-    const { applicationId, tone, length, allowResend = false, provider, model } = req.body;
+    const {
+      applicationId, tone, length, allowResend = false, provider, model,
+      mode = "send", accountId = null, scheduledAt, timezone = DEFAULT_TIMEZONE,
+      subject, body,
+    } = req.body;
     if (!applicationId) throw new HttpError(400, "applicationId is required");
+    if (!["send", "schedule"].includes(mode)) throw new HttpError(400, "mode must be 'send' or 'schedule'");
 
     const application = await Application.findOne({ _id: applicationId, owner: req.userId });
     if (!application) throw new HttpError(404, "Application not found");
@@ -281,67 +409,75 @@ router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail")
 
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const resumes = profile?.resumes || [];
-    const match = matchResumeForJob({ resumes, jobTitle: application.jobTitle });
+    const match = matchResumeForJob({
+      resumes,
+      jobTitle: application.jobTitle,
+      profileExperience: profile?.experience || "",
+      jobExperience: getApplicationExperience(application),
+    });
 
-    if (!match.matched) {
-      const reasonMessages = {
-        no_resumes: "You have not uploaded any resume yet.",
-        no_resume_notes: "None of your resumes has role notes. Add notes like \"Full Stack Developer\" or \"React Developer\" in your profile.",
-        no_matching_resume: `No resume note matches the job title "${application.jobTitle}".`,
-        missing_job_title: "This application has no job title to match against.",
-      };
-      return res.status(422).json({
-        code: "NO_RESUME_MATCH",
-        reason: match.reason,
-        message: reasonMessages[match.reason] || "No resume matches this job title.",
-        jobTitle: application.jobTitle,
-        resumes: describeResumeMatches({ resumes, jobTitle: application.jobTitle }),
+    if (!match.matched) return sendNoResumeMatch(res, { match, resumes, application });
+
+    const recipient = await resolveApplicationRecipient({ userId: req.userId, application });
+    const user = await User.findById(req.userId);
+    const draft = await getOrGenerateDraft({
+      req, application, profile, tone, length, provider, model, subject, body, user,
+    });
+
+    if (mode === "schedule") {
+      const job = await createScheduledEmail({
+        user,
+        input: {
+          applicationId: application._id,
+          contactId: recipient.contactId,
+          recipientEmail: recipient.recipientEmail,
+          recipientName: recipient.recipientName,
+          subject: draft.subject,
+          body: draft.body,
+          resumeId: match.resumeId,
+          accountId,
+          scheduledAt,
+          timezone,
+          emailType: "Job Application",
+          isAiGenerated: draft.generated,
+          allowResend,
+        },
+      });
+
+      return res.status(201).json({
+        scheduled: true,
+        email: toPublicScheduledEmail(job),
+        draft: { subject: draft.subject, body: draft.body },
+        resume: match.resume,
+        matchedTerms: match.matchedTerms,
+        experienceMatch: match.experienceMatch,
       });
     }
-
-    // Resolve a usable recipient (contact email first, then the saved HR email).
-    let contactId = application.contact || null;
-    if (contactId) {
-      const contact = await Contact.findOne({ _id: contactId, owner: req.userId });
-      if (!contact?.email) contactId = null;
-    }
-    if (!contactId && !application.hrEmail) {
-      throw new HttpError(400, "This application has no recruiter email. Add an HR email first.");
-    }
-
-    const user = await User.findById(req.userId).select("aiProviders gmailAddress name");
-    const draft = await generateApplicationEmail({
-      profile,
-      application,
-      tone,
-      length,
-      userProviders: user?.aiProviders || [],
-      provider,
-      model,
-    });
 
     const params = {
       applicationId: application._id,
       subject: draft.subject,
       message: draft.body,
       resumeId: match.resumeId,
-      isAiGenerated: true,
+      isAiGenerated: draft.generated,
       emailType: "Job Application",
       allowResend,
+      accountId,
     };
-    if (contactId) {
-      params.contactIds = [contactId];
+    if (recipient.contactId) {
+      params.contactIds = [recipient.contactId];
     } else {
-      params.recipientEmail = application.hrEmail;
-      params.recipientName = application.hrName || "";
+      params.recipientEmail = recipient.recipientEmail;
+      params.recipientName = recipient.recipientName;
     }
 
     const out = await performSend(req, params);
     res.json({
       ...out,
-      draft,
+      draft: { subject: draft.subject, body: draft.body },
       resume: match.resume,
       matchedTerms: match.matchedTerms,
+      experienceMatch: match.experienceMatch,
       emailSent: out.results.some((r) => r.status === "sent"),
     });
   } catch (err) {

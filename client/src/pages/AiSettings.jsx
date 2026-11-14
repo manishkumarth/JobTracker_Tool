@@ -5,6 +5,7 @@ import { getProfile, updateProfile } from "../api/profile.js";
 import { getAppVideo } from "../api/admin.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import api from "../api/axios.js";
+import GmailAccountsManager from "../components/GmailAccountsManager.jsx";
 
 function MasterPromptSection() {
   const [prompt, setPrompt] = useState("");
@@ -384,8 +385,8 @@ export default function AiSettings() {
       {/* Master Prompt */}
       <MasterPromptSection />
 
-      {/* Gmail Section */}
-      <GmailSection />
+      {/* Gmail accounts */}
+      <GmailAccountsManager />
 
       {/* AI Providers */}
       <div className="space-y-4">

@@ -23,6 +23,7 @@ a job title for you.
 - [Environment variables](#environment-variables)
 - [Deploy to Vercel](#deploy-to-vercel)
 - [Setting the auto follow-up cron](#setting-the-auto-follow-up-cron)
+- [Scheduled emails & multiple Gmail accounts](#scheduled-emails--multiple-gmail-accounts)
 - [Admin access](#admin-access)
 - [API reference](#api-reference)
 - [Security notes](#security-notes)
@@ -58,8 +59,20 @@ uploaded resumes — or upload a new PDF on the spot.
 ### Smart resume management
 - Upload multiple resumes (stored on Cloudinary)
 - Tag each resume with the roles it fits, e.g. *"React Developer, Frontend, Fullstack"*
-- Auto-selection matches role keywords against **both** the filename and your role note
+- Set an experience range (min/max years) on each resume
+- Auto-selection matches your role note (never the filename) and scores job experience
+  ranges such as `3–5 Years` or `2.4 Years` against each resume's range
 - Java is the highest-priority role group so a "Java Developer" role never picks a frontend resume
+
+### Multi-account Gmail & scheduled sending
+- Add several Gmail senders, label them, set a default, test, disable or remove each one
+- App Passwords are AES-256-GCM encrypted at rest and never returned by any API
+- **Send now** or **Schedule** from the AI Email Assistant after previewing/editing the draft
+- Timezone-aware date/time picker (defaults to `Asia/Kolkata`)
+- **Scheduled Emails** dashboard with Pending / Scheduled / Processing / Sent / Failed /
+  Cancelled counts, edit, cancel, retry, send-now and delete actions
+- Persistent MongoDB-backed scheduler with atomic claiming, bounded retries/backoff and
+  restart recovery — no Redis or external worker required
 
 ### AI email assistant
 - Generates application emails and follow-ups with tone/length controls
@@ -290,7 +303,10 @@ happens automatically.
 | `CLOUDINARY_API_KEY` | Alt | '' |
 | `CLOUDINARY_API_SECRET` | Alt | '' |
 | `CLIENT_URL` | Yes | Allowed CORS origin (comma-separate for multiple) |
-| `CRON_SECRET` | Recommended | Bearer token the Vercel Cron sends to `/api/cron/auto-followup` |
+| `CRON_SECRET` | Recommended | Bearer token for `/api/cron/auto-followup` and `/api/cron/process-scheduled-emails` (the latter returns `503` when unset) |
+| `SCHEDULER_INTERVAL_MS` | No | In-process scheduled-email tick interval, default `30000` (min `15000`) |
+| `DISABLE_SCHEDULER` | No | Set to `true` to disable the in-process tick and the opportunistic per-request tick |
+| `SCHEDULER_RETRY_INTERRUPTED` | No | Set to `true` to retry sends that were interrupted mid-flight. Default is fail-safe (mark `Failed`) so duplicate application emails are never sent |
 | `TRACKING_BASE_URL` | No | Public base URL for open/click tracking in emails |
 | `PORT` | No | Local dev port, defaults to `5000` |
 
@@ -389,6 +405,59 @@ keep it in the manual list instead.
 
 You can also run it manually from **Follow-ups → Auto send to everyone not sent
 yet**, which calls the same logic synchronously.
+
+---
+
+## Scheduled emails & multiple Gmail accounts
+
+Application emails can be sent immediately or scheduled for a future date/time. The
+scheduled job lives in MongoDB (`ScheduledEmail`), so it survives deploys, cold starts
+and worker restarts.
+
+### How delivery works
+
+| Environment | How due emails are processed |
+|---|---|
+| Local / long-running server | In-process interval worker (`startScheduler`, every `SCHEDULER_INTERVAL_MS`) |
+| Vercel (serverless) | Opportunistic tick on `/api` requests (max once a minute) **plus** the cron endpoint below |
+
+For reliable, on-time delivery in production, call the cron endpoint from any external
+scheduler every 1–5 minutes:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://<your-app>.vercel.app/api/cron/process-scheduled-emails?limit=20"
+```
+
+`GET /api/cron/process-scheduled-emails` returns `503` until `CRON_SECRET` is set, and
+`401` for a wrong/missing bearer token. Authenticated users can also trigger a tick
+with `POST /api/scheduled-emails/run-due`, or from the **Process due** button on the
+Scheduled Emails page.
+
+### Why no Redis / BullMQ?
+
+BullMQ needs a long-running worker process and a reachable Redis instance, which the
+current Vercel serverless deployment cannot provide. Instead the scheduler uses:
+
+- **Atomic claim** — `findOneAndUpdate` flips `Scheduled`/`Pending` → `Processing` before
+  sending, so two instances can never send the same email twice.
+- **Bounded retries** — up to 3 attempts with exponential backoff (2, 4, 8 min); permanent
+  SMTP/auth failures are not retried.
+- **Restart recovery** — jobs stuck in `Processing` for 10+ minutes are marked `Failed`
+  (fail-safe, to avoid duplicate application emails). Set
+  `SCHEDULER_RETRY_INTERRUPTED=true` to retry them instead.
+- **Duplicate guard** — a unique sparse `dedupeKey` per application (ignoring the sender
+  account) prevents scheduling the same application email twice, even from a second
+  Gmail account. The key is cleared when the job reaches a terminal state.
+
+### Multi-account rules
+
+- Each account's App Password is encrypted with AES-256-GCM (`JWT_SECRET`-derived key)
+  and only decrypted inside the mailer.
+- `/api/auth/me` and `/api/email-accounts` never include password fields.
+- The legacy `gmailAddress` / `gmailConnected` fields stay in sync with the default
+  account, so older single-account flows (follow-ups, WhatsApp, extension) keep working.
+- Deleting an account is blocked while it has Pending/Scheduled/Processing emails.
 
 ---
 
@@ -505,6 +574,13 @@ header unless noted.
 | POST | `/auth/logout` | Record logout time in the user log |
 | GET | `/auth/me` | Current user (allowed even when disabled) |
 | POST | `/auth/connect-gmail` | Store Gmail address + App Password (encrypted) |
+| GET | `/email-accounts` | List sender accounts (never returns passwords) |
+| POST | `/email-accounts` | Add a Gmail sender account |
+| PUT | `/email-accounts/:id` | Edit address/label/password/enabled/default |
+| POST | `/email-accounts/:id/test` | Verify stored credentials with Gmail |
+| POST | `/email-accounts/test` | Verify credentials without saving them |
+| POST | `/email-accounts/:id/default` | Set the default sender |
+| DELETE | `/email-accounts/:id` | Remove an account (blocked while emails are pending) |
 | GET | `/applications` | List with search, status, company, work-mode, priority, pagination |
 | POST | `/applications` | Create — auto-creates company + contact from HR data |
 | GET | `/applications/:id` | Single application, populated |
@@ -516,6 +592,17 @@ header unless noted.
 | POST | `/applications/bulk/send-followups` | Bulk send AI follow-up emails |
 | POST | `/applications/bulk/delete` | Bulk delete |
 | POST | `/mail/send` | Send an email (duplicate guard unless `allowResend`) |
+| POST | `/mail/draft` | Preview: match resume + generate AI draft without sending |
+| POST | `/mail/auto-send` | One click send, or `mode: "schedule"` to schedule it |
+| GET | `/scheduled-emails` | Dashboard list (status, search, pagination) |
+| GET | `/scheduled-emails/counts` | Counts per status |
+| POST | `/scheduled-emails` | Create a scheduled email |
+| PUT | `/scheduled-emails/:id` | Edit a pending/scheduled email (atomic) |
+| POST | `/scheduled-emails/:id/cancel` | Cancel |
+| POST | `/scheduled-emails/:id/retry` | Retry a failed email |
+| POST | `/scheduled-emails/:id/send-now` | Send immediately |
+| DELETE | `/scheduled-emails/:id` | Delete a cancelled/failed record |
+| POST | `/scheduled-emails/run-due` | Process due emails now (manual worker tick) |
 | POST | `/mail/reply` | Threaded reply |
 | POST | `/ai/generate-email` | Generate an application email |
 | POST | `/ai/generate-followup` | Generate a follow-up email |
@@ -553,6 +640,7 @@ header unless noted.
 | GET | `/admin/logs` | User session/activity logs, filterable & paginated — **admin only** |
 | DELETE | `/admin/users/:id` | Delete user + data — **admin only** |
 | GET | `/cron/auto-followup` | Vercel Cron target (honors `CRON_SECRET`) |
+| GET | `/cron/process-scheduled-emails` | Scheduled-email cron target (requires `CRON_SECRET`) |
 
 Every collection is scoped by `owner` on every query — one user can never read
 another's data.
@@ -563,7 +651,8 @@ another's data.
 
 - **Secrets are encrypted at rest.** Gmail App Passwords and AI provider keys are
   stored with AES-256-GCM (`utils/crypto.js`) and never returned to the frontend.
-  `/auth/me` excludes `password`, `gmailAppPasswordEnc` and `aiProviders`.
+  `/auth/me` and `/email-accounts` strip `password`, `gmailAppPasswordEnc` and
+  `appPasswordEnc`; AI providers are returned with `connected: true/false` only.
 - **AI is read-only about you.** The `CANDIDATE FACTS` block plus explicit
   "never invent" rules constrain every generation. Output is requested as strict
   JSON and sanitized (stray `[]` stripped) before it reaches the UI.

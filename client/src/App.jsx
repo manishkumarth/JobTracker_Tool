@@ -11,6 +11,7 @@ import ContactDetail from "./pages/ContactDetail.jsx";
 import EmailHistory from "./pages/EmailHistory.jsx";
 import EmailTemplates from "./pages/EmailTemplates.jsx";
 import FollowUps from "./pages/FollowUps.jsx";
+import ScheduledEmails from "./pages/ScheduledEmails.jsx";
 import Interviews from "./pages/Interviews.jsx";
 import CandidateProfilePage from "./pages/CandidateProfilePage.jsx";
 import HRReply from "./pages/HRReply.jsx";
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/emails" element={<EmailHistory />} />
           <Route path="/templates" element={<EmailTemplates />} />
           <Route path="/followups" element={<FollowUps />} />
+          <Route path="/scheduled" element={<ScheduledEmails />} />
           <Route path="/interviews" element={<Interviews />} />
           <Route path="/profile" element={<CandidateProfilePage />} />
 <Route path="/hr-reply" element={<HRReply />} />
