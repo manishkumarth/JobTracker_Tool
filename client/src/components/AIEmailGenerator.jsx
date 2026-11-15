@@ -69,8 +69,14 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       const list = data.accounts || [];
       setAccounts(list);
       setAccountId((prev) => {
-        if (prev && list.some((a) => a._id === prev)) return prev;
-        return list.find((a) => a.isDefault && a.enabled) || list.find((a) => a.enabled) || list[0] || "";
+        // Always hold the id string — never the account object.
+        const prevId = typeof prev === "string" ? prev : prev?._id || "";
+        if (prevId && list.some((a) => a._id === prevId)) return prevId;
+        const pick =
+          list.find((a) => a.isDefault && a.enabled) ||
+          list.find((a) => a.enabled) ||
+          list[0];
+        return pick?._id || "";
       });
     } catch {
       setAccounts([]);

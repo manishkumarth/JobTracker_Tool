@@ -97,7 +97,21 @@ export async function resolveEmailAccount(user, accountId = null) {
 
   let account = null;
   if (accountId) {
-    account = accounts.find((a) => String(a._id) === String(accountId));
+    // Be forgiving about what the client sends: an id string (normal), an
+    // object with _id/id (older clients), or the account's email address.
+    const raw =
+      typeof accountId === "object"
+        ? String(accountId._id || accountId.id || accountId.address || "")
+        : String(accountId);
+    const wanted = raw.trim();
+    const wantedLower = wanted.toLowerCase();
+
+    account =
+      accounts.find((a) => String(a._id) === wanted) ||
+      accounts.find((a) => String(a._id || "").toLowerCase() === wantedLower) ||
+      accounts.find((a) => normalizeAddress(a.address) === normalizeAddress(wanted)) ||
+      null;
+
     if (!account) throw new AccountError(404, "Gmail account not found", "ACCOUNT_NOT_FOUND");
   } else {
     account =
