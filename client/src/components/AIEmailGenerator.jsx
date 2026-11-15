@@ -281,7 +281,11 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       const sent = (data.results || []).find((r) => r.status === "sent");
       if (sent) {
         setResult({ type: "sent", subject: data.draft?.subject, recipient: sent.email, sender: selectedAccount?.address });
-        toast.success("Email sent successfully");
+        toast.success(
+          data.aiFallback
+            ? "Email sent. AI was slow, so a standard template was used — regenerate the draft to review it."
+            : "Email sent successfully"
+        );
         onSent?.();
         loadMatch();
       } else {
@@ -320,6 +324,9 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
         let msg = `Email sent from ${data.defaultAccount}`;
         if (data.scheduled?.length) {
           msg += ` + ${data.scheduled.length} scheduled for other account(s)`;
+        }
+        if (data.aiFallback) {
+          msg += " (AI was slow, template used)";
         }
         setResult({ type: "sent", subject: data.draft?.subject, recipient: draft.recipient, sender: data.defaultAccount });
         toast.success(msg);

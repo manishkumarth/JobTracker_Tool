@@ -144,6 +144,9 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         if (result.resume?.originalName) {
           msg += ` with ${result.resume.originalName}`;
         }
+        if (result.aiFallback) {
+          msg += " (AI was slow, template used)";
+        }
         toast.success(msg);
       } else if (result.scheduled?.length) {
         toast.success(`Application saved. ${result.scheduled.length} email(s) scheduled for other accounts.`);

@@ -14,7 +14,7 @@ import { createScheduledEmail, toPublicScheduledEmail, DEFAULT_TIMEZONE } from "
 import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "../utils/tracking.js";
-import { generateApplicationEmail } from "../utils/emailWriter.js";
+import { generateApplicationEmail, buildFallbackApplicationEmail } from "../utils/emailWriter.js";
 import { matchResumeForJob, validateResumeForJob, describeResumeMatches, getApplicationExperience } from "../utils/resumeMatcher.js";
 
 const router = express.Router();
@@ -49,9 +49,46 @@ class HttpError extends Error {
 }
 
 const sendError = (res, err) => {
-  const status = err.status || 500;
+  const isTimeout = /timed out|timeout|aborted/i.test(err.message || "");
+  const status = err.status || (isTimeout ? 504 : 500);
   if (status >= 500) console.error("Mail send error:", err.message);
-  res.status(status).json({ message: err.message || "Something went wrong", ...(err.data || {}) });
+  logSlowSend(res, "errored request", err.message || "");
+  res.status(status).json({
+    message: isTimeout
+      ? `${err.message || "Request timed out"} — the email may still have been sent. Check Email History.`
+      : err.message || "Something went wrong",
+    ...(err.data || {}),
+  });
+};
+
+// Hard ceiling for routes that talk to an LLM, Cloudinary and Gmail SMTP.
+// Vercel kills the function without a body once maxDuration is hit; this makes
+// sure the client always receives a readable JSON error instead of hanging.
+const SEND_ROUTE_TIMEOUT_MS = 55000;
+// One-click send gets a short AI budget; past this we send a truthful template
+// instead of risking a Vercel function timeout. Tunable without a code change.
+const QUICK_DRAFT_TIMEOUT_MS = Number(process.env.QUICK_DRAFT_TIMEOUT_MS) || 8000;
+const guardSlowSend = (req, res, next) => {
+  const startedAt = Date.now();
+  res.locals.mailStartedAt = startedAt;
+  res.setTimeout(SEND_ROUTE_TIMEOUT_MS, () => {
+    if (!res.headersSent) {
+      console.error(`[mail] request timed out after ${Date.now() - startedAt}ms: ${req.method} ${req.originalUrl}`);
+      res.status(504).json({
+        message: "Sending took too long and was stopped. Check Email History — the email may still have been sent.",
+        code: "REQUEST_TIMEOUT",
+      });
+    }
+  });
+  next();
+};
+
+// Log only genuinely slow requests so production logs stay readable.
+const logSlowSend = (res, label, extra = "") => {
+  const elapsed = Date.now() - (res.locals.mailStartedAt || Date.now());
+  if (elapsed > 5000) {
+    console.log(`[mail] slow ${label}: ${elapsed}ms${extra ? ` ${extra}` : ""}`);
+  }
 };
 
 // Shared send implementation used by POST /mail/send and POST /mail/auto-send.
@@ -219,7 +256,8 @@ async function performSend(req, params) {
       await logEntry.save();
       results.push({ email: contact.email, status: "failed", error: err.message });
     }
-    await delay(1500);
+    // Small stagger between recipients only — never wait after the last one.
+    if (contact !== contacts[contacts.length - 1]) await delay(1500);
   }
 
   if (application && usedResume) {
@@ -274,7 +312,7 @@ async function performSend(req, params) {
 // POST /api/mail/send
 // body: { contactIds: [...], subject, message, resumeId?, attachmentFilename?, applicationId?, companyId?,
 //         emailType?, isAiGenerated?, templateId?, allowResend? }
-router.post("/send", requireFeature("sendEmail"), async (req, res) => {
+router.post("/send", guardSlowSend, requireFeature("sendEmail"), async (req, res) => {
   try {
     const { results } = await performSend(req, req.body);
     res.json({ results });
@@ -334,29 +372,48 @@ async function resolveApplicationRecipient({ userId, application }) {
 
 async function getOrGenerateDraft({
   req, application, profile, tone, length, provider, model, subject, body, user,
+  draftTimeoutMs, allowTemplateFallback = false,
 }) {
   if (String(subject || "").trim() && String(body || "").trim()) {
-    return { subject: String(subject).trim(), body: String(body), generated: false };
+    return { subject: String(subject).trim(), body: String(body), generated: false, fallback: false };
   }
-  const generated = await generateApplicationEmail({
-    profile,
-    application,
-    tone,
-    length,
-    userProviders: user?.aiProviders || [],
-    provider,
-    model,
-  });
-  return {
-    subject: String(subject || "").trim() || generated.subject,
-    body: String(body || "").trim() || generated.body,
-    generated: true,
-  };
+
+  try {
+    const generated = await generateApplicationEmail({
+      profile,
+      application,
+      tone,
+      length,
+      userProviders: user?.aiProviders || [],
+      provider,
+      model,
+      timeoutMs: draftTimeoutMs,
+    });
+    return {
+      subject: String(subject || "").trim() || generated.subject,
+      body: String(body || "").trim() || generated.body,
+      generated: true,
+      fallback: false,
+    };
+  } catch (err) {
+    // One-click send must stay inside the serverless time budget, so a slow or
+    // failing AI provider falls back to a truthful template instead of leaving
+    // the request hanging until Vercel kills it.
+    if (!allowTemplateFallback) throw err;
+    console.error("[mail] AI draft unavailable, using template:", err.message);
+    const template = buildFallbackApplicationEmail({ profile, application });
+    return {
+      subject: String(subject || "").trim() || template.subject,
+      body: String(body || "").trim() || template.body,
+      generated: false,
+      fallback: true,
+    };
+  }
 }
 
 // POST /api/mail/draft
 // Preview step: match resume → generate AI email, WITHOUT sending.
-router.post("/draft", requireFeature("aiEmail"), async (req, res) => {
+router.post("/draft", guardSlowSend, requireFeature("aiEmail"), async (req, res) => {
   try {
     const { applicationId, tone, length, provider, model } = req.body;
     if (!applicationId) throw new HttpError(400, "applicationId is required");
@@ -409,7 +466,7 @@ router.post("/draft", requireFeature("aiEmail"), async (req, res) => {
 // POST /api/mail/auto-send
 // Match resume notes → generate (or use supplied) email → send now or schedule.
 // If no resume note matches the job title we return 422 and never fall back.
-router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail"), async (req, res) => {
+router.post("/auto-send", guardSlowSend, requireFeature("sendEmail"), requireFeature("aiEmail"), async (req, res) => {
   try {
     const {
       applicationId, tone, length, allowResend = false, provider, model,
@@ -447,6 +504,8 @@ router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail")
     const user = await User.findById(req.userId);
     const draft = await getOrGenerateDraft({
       req, application, profile, tone, length, provider, model, subject, body, user,
+      draftTimeoutMs: QUICK_DRAFT_TIMEOUT_MS,
+      allowTemplateFallback: true,
     });
 
     if (mode === "schedule") {
@@ -469,6 +528,7 @@ router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail")
         },
       });
 
+      logSlowSend(res, "auto-send (scheduled)", `aiDraft=${draft.generated}`);
       return res.status(201).json({
         scheduled: true,
         email: toPublicScheduledEmail(job),
@@ -497,9 +557,11 @@ router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail")
     }
 
     const out = await performSend(req, params);
+    logSlowSend(res, "auto-send (send)", `aiDraft=${draft.generated} fallback=${!!draft.fallback}`);
     res.json({
       ...out,
       draft: { subject: draft.subject, body: draft.body },
+      aiFallback: !!draft.fallback,
       resume: match.resume,
       matchedTerms: match.matchedTerms,
       experienceMatch: match.experienceMatch,
@@ -511,7 +573,7 @@ router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail")
 });
 
 // POST /api/mail/auto-send-multi — send from default account now, schedule for other accounts per their prefs
-router.post("/auto-send-multi", requireFeature("sendEmail"), requireFeature("aiEmail"), async (req, res) => {
+router.post("/auto-send-multi", guardSlowSend, requireFeature("sendEmail"), requireFeature("aiEmail"), async (req, res) => {
   try {
     const {
       applicationId, tone, length, allowResend = false, provider, model,
@@ -547,6 +609,8 @@ router.post("/auto-send-multi", requireFeature("sendEmail"), requireFeature("aiE
     const user = await User.findById(req.userId);
     const draft = await getOrGenerateDraft({
       req, application, profile, tone, length, provider, model, subject, body, user,
+      draftTimeoutMs: QUICK_DRAFT_TIMEOUT_MS,
+      allowTemplateFallback: true,
     });
 
     // Get all enabled accounts with their scheduling preferences
@@ -631,8 +695,10 @@ router.post("/auto-send-multi", requireFeature("sendEmail"), requireFeature("aiE
       }
     }
 
+    logSlowSend(res, "auto-send-multi", `scheduled=${scheduled.length} fallback=${!!draft.fallback}`);
     res.json({
       sentNow,
+      aiFallback: !!draft.fallback,
       draft: { subject: draft.subject, body: draft.body },
       resume: match.resume,
       matchedTerms: match.matchedTerms,
@@ -646,7 +712,7 @@ router.post("/auto-send-multi", requireFeature("sendEmail"), requireFeature("aiE
 });
 
 // POST /api/mail/reply - Reply to an existing email (threaded)
-router.post("/reply", requireFeature("sendEmail"), async (req, res) => {
+router.post("/reply", guardSlowSend, requireFeature("sendEmail"), async (req, res) => {
   try {
     const { parentEmailId, contactIds, subject, message, resumeId, attachmentFilename } = req.body;
     if (!parentEmailId || !contactIds?.length || !message) {

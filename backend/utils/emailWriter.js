@@ -14,6 +14,7 @@ export async function generateApplicationEmail({
   userProviders = [],
   provider,
   model,
+  timeoutMs,
 }) {
   if (!application?.jobTitle) throw new Error("jobTitle is required");
 
@@ -40,9 +41,79 @@ ${masterPromptBlock(profile)}
 ${JSON_ONLY}, in exactly this shape:
 {"subject": "...", "body": "..."}`.trim();
 
-  const text = await callLLM({ userProviders, prompt, preferProvider: provider, preferModel: model });
+  const text = await callLLM({
+    userProviders,
+    prompt,
+    preferProvider: provider,
+    preferModel: model,
+    ...(timeoutMs ? { timeoutMs } : {}),
+  });
   const parsed = parseJson(text);
   if (!parsed.subject || !parsed.body) throw new Error("LLM returned an unexpected format");
 
   return { subject: sanitizeText(parsed.subject), body: sanitizeText(parsed.body) };
+}
+
+/**
+ * Instant, deterministic application email used when the AI provider is slow
+ * or unavailable. It only states facts from the candidate profile, so it is
+ * safe to send without an LLM round-trip. This is what keeps one-click send
+ * inside the serverless time budget.
+ */
+export function buildFallbackApplicationEmail({ profile, application }) {
+  const name = profile?.name?.trim() || "";
+  const role = application?.jobTitle || "the advertised role";
+  const company = application?.companyName?.trim() || "";
+  const recruiter = application?.hrName?.trim() || "";
+
+  const greeting = recruiter ? `Dear ${recruiter},` : "Dear Hiring Team,";
+  const roleLine = company
+    ? `I would like to apply for the ${role} position at ${company}.`
+    : `I would like to apply for the ${role} position.`;
+
+  const highlights = [];
+  if (profile?.professionalTitle?.trim()) highlights.push(`my background as a ${profile.professionalTitle.trim()}`);
+  if (profile?.experience?.trim()) highlights.push(`${profile.experience.trim()} of experience`);
+  const skills = (profile?.skills || []).filter(Boolean).slice(0, 5);
+  if (skills.length) highlights.push(`hands-on work with ${skills.join(", ")}`);
+
+  const highlightLine = highlights.length
+    ? `I bring ${highlights.join(", ")}, which I believe fits what you are looking for.`
+    : "I believe my background fits what you are looking for.";
+
+  const links = [
+    profile?.portfolio?.trim(),
+    profile?.github?.trim(),
+    profile?.linkedin?.trim(),
+  ].filter(Boolean);
+
+  const contactParts = [];
+  if (profile?.phone?.trim()) contactParts.push(`Phone: ${profile.phone.trim()}`);
+  if (profile?.email?.trim()) contactParts.push(`Email: ${profile.email.trim()}`);
+
+  const body = [
+    greeting,
+    "",
+    roleLine,
+    "",
+    highlightLine,
+    "I have attached my resume for your review. I would be glad to discuss how I can contribute to your team.",
+    "",
+    "Thank you for your time and consideration.",
+    "",
+    "Best regards,",
+    name || "Candidate",
+    ...contactParts,
+    ...links,
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const subject = company
+    ? `Application for ${role} at ${company}${name ? ` — ${name}` : ""}`
+    : `Application for ${role}${name ? ` — ${name}` : ""}`;
+
+  return { subject, body };
 }

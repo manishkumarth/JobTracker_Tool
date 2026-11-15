@@ -19,7 +19,7 @@ export const fetchBuffer = (url) =>
     });
 
     request.on("error", reject);
-    request.setTimeout(30000, () => {
+    request.setTimeout(15000, () => {
       request.destroy(new Error("File download timed out"));
     });
   });

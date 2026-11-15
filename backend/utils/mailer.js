@@ -9,9 +9,9 @@ export const createTransporter = (address, appPassword) =>
       user: address,
       pass: appPassword,
     },
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 30000,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
   });
 
 // Builds a Nodemailer transporter authenticated as the USER's own Gmail,

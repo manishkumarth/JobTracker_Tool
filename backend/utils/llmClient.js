@@ -4,7 +4,7 @@ import { PROVIDERS } from "./llmProviders.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // ── OpenAI-compatible call ──────────────────────────────────────────────────
-const callOpenAICompatible = async ({ endpoint, apiKey, model, prompt, systemPrompt }) => {
+const callOpenAICompatible = async ({ endpoint, apiKey, model, prompt, systemPrompt, signal }) => {
   const messages = [];
   if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
   messages.push({ role: "user", content: prompt });
@@ -19,6 +19,7 @@ const callOpenAICompatible = async ({ endpoint, apiKey, model, prompt, systemPro
     method: "POST",
     headers,
     body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 2048 }),
+    signal,
   });
 
   if (!res.ok) {
@@ -35,7 +36,7 @@ const callOpenAICompatible = async ({ endpoint, apiKey, model, prompt, systemPro
 };
 
 // ── Anthropic call ──────────────────────────────────────────────────────────
-const callAnthropic = async ({ endpoint, apiKey, model, prompt, systemPrompt }) => {
+const callAnthropic = async ({ endpoint, apiKey, model, prompt, systemPrompt, signal }) => {
   const providerDef = PROVIDERS.anthropic;
   const headers = {
     "Content-Type": "application/json",
@@ -53,6 +54,7 @@ const callAnthropic = async ({ endpoint, apiKey, model, prompt, systemPrompt }) 
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!res.ok) {
@@ -76,11 +78,21 @@ const getFallbackClient = () => {
   return fallbackClient;
 };
 
-const callGeminiFallback = async (prompt) => {
+// Timeout wrapper: races the promise but always clears the timer so the
+// event loop can exit (important for serverless / Vercel functions).
+const withTimeout = (promise, ms, timeoutError) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutError)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
+const callGeminiWithSignal = async (prompt, signal) => {
   const client = getFallbackClient();
   if (!client) throw new Error("No AI provider configured. Add an API key in Settings → AI Providers.");
   const model = client.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const result = await model.generateContent(prompt);
+  const result = await model.generateContent(prompt, { signal });
   return result.response.text();
 };
 
@@ -93,9 +105,17 @@ const callGeminiFallback = async (prompt) => {
  * @param {string} [opts.systemPrompt] - optional system prompt
  * @param {string} [opts.preferProvider] - force a specific provider id (e.g. "openrouter")
  * @param {string} [opts.preferModel] - override model for the selected provider
+ * @param {number} [opts.timeoutMs=25000] - timeout in milliseconds
  * @returns {string} raw text response from LLM
  */
-export const callLLM = async ({ userProviders, prompt, systemPrompt, preferProvider, preferModel }) => {
+export const callLLM = async ({
+  userProviders,
+  prompt,
+  systemPrompt,
+  preferProvider,
+  preferModel,
+  timeoutMs = 25000,
+}) => {
   // Find the active provider (or the preferred one)
   let chosen = null;
   if (preferProvider) {
@@ -118,15 +138,42 @@ export const callLLM = async ({ userProviders, prompt, systemPrompt, preferProvi
     if (!providerDef) throw new Error(`Unknown provider: ${chosen.provider}`);
 
     const model = preferModel || chosen.model || providerDef.defaultModel;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (providerDef.format === "anthropic") {
-      return callAnthropic({ endpoint: providerDef.endpoint, apiKey, model, prompt, systemPrompt });
+    const callFn = providerDef.format === "anthropic"
+      ? () => callAnthropic({ endpoint: providerDef.endpoint, apiKey, model, prompt, systemPrompt, signal: controller.signal })
+      : () => callOpenAICompatible({ endpoint: providerDef.endpoint, apiKey, model, prompt, systemPrompt, signal: controller.signal });
+
+    try {
+      return await withTimeout(callFn(), timeoutMs + 1000, `LLM call timed out after ${timeoutMs}ms`);
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(`LLM call timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    return callOpenAICompatible({ endpoint: providerDef.endpoint, apiKey, model, prompt, systemPrompt });
   }
 
   // No user key → server-side Gemini fallback
-  return callGeminiFallback(prompt);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await withTimeout(
+      callGeminiWithSignal(prompt, controller.signal),
+      timeoutMs + 1000,
+      `Gemini fallback timed out after ${timeoutMs}ms`
+    );
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(`Gemini fallback timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 /**
