@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { getResumeMatch } from "../api/applications.js";
-import { autoSendApplicationEmail, draftApplicationEmail, sendMail } from "../api/emails.js";
+import { autoSendApplicationEmail, autoSendMultiAccount, draftApplicationEmail, sendMail } from "../api/emails.js";
 import { createScheduledEmail } from "../api/scheduledEmails.js";
 import { listEmailAccounts } from "../api/emailAccounts.js";
 import {
@@ -37,6 +37,7 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
   const [matchLoading, setMatchLoading] = useState(true);
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
+  const [accountsLoading, setAccountsLoading] = useState(true);
   const [draft, setDraft] = useState(null); // { subject, body, resume, recipient, recipientName }
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
@@ -62,6 +63,7 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
   }, [application._id]);
 
   const loadAccounts = useCallback(async () => {
+    setAccountsLoading(true);
     try {
       const data = await listEmailAccounts();
       const list = data.accounts || [];
@@ -72,6 +74,8 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       });
     } catch {
       setAccounts([]);
+    } finally {
+      setAccountsLoading(false);
     }
   }, []);
 
@@ -289,6 +293,47 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       const data = err.response?.data || {};
       setError(data.message || "Failed to send email");
       toast.error(data.message || "Failed to send email");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Multi-account: primary sends now, others schedule per their prefs
+  const sendFromAllAccounts = async () => {
+    if (sending) return;
+    if (match && !match.hasRecipient) {
+      return toast.error("Add an HR email or link a contact on this application first.");
+    }
+    if (!requireGmail()) return;
+    if (!enabledAccounts.length || enabledAccounts.length < 2) {
+      return toast.error("Add at least 2 enabled Gmail accounts to use multi-account send");
+    }
+    if (!draft) {
+      return toast.error("Generate a draft first");
+    }
+    setSending(true);
+    setError(null);
+    setResult(null);
+    try {
+      const data = await autoSendMultiAccount(application._id);
+      if (data.sentNow) {
+        let msg = `Email sent from ${data.defaultAccount}`;
+        if (data.scheduled?.length) {
+          msg += ` + ${data.scheduled.length} scheduled for other account(s)`;
+        }
+        setResult({ type: "sent", subject: data.draft?.subject, recipient: draft.recipient, sender: data.defaultAccount });
+        toast.success(msg);
+        onSent?.();
+        loadMatch();
+      } else if (data.scheduled?.length) {
+        toast.success(`${data.scheduled.length} email(s) scheduled for other accounts.`);
+      } else {
+        toast.error("No emails sent or scheduled");
+      }
+    } catch (err) {
+      const data = err.response?.data || {};
+      setError(data.message || "Failed to send from all accounts");
+      toast.error(data.message || "Failed to send from all accounts");
     } finally {
       setSending(false);
     }
@@ -530,11 +575,11 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
           <button
             type="button"
             onClick={quickSend}
-            disabled={sending || matchLoading || (match ? !matched || alreadySent || !hasRecipient : false)}
+            disabled={sending || matchLoading || accountsLoading || !enabledAccounts.length || (match ? !matched || alreadySent || !hasRecipient : false)}
             className="px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            title="Skip the preview and send immediately"
+            title={accountsLoading ? "Loading Gmail accounts..." : !enabledAccounts.length ? "No enabled Gmail account" : "Skip the preview and send immediately"}
           >
-            {sending ? "Sending…" : "Quick send"}
+            {sending ? "Sending…" : accountsLoading ? "Loading…" : "Quick send"}
           </button>
         </div>
       )}
@@ -544,7 +589,7 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
           <button
             type="button"
             onClick={mode === "schedule" ? scheduleEmail : sendNow}
-            disabled={sending || alreadySent || !hasRecipient || !selectedAccount || !!result}
+            disabled={sending || accountsLoading || !enabledAccounts.length || alreadySent || !hasRecipient || !selectedAccount || !!result}
             className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all ${
               mode === "schedule" ? "bg-brand-600 hover:bg-brand-700" : "bg-emerald-600 hover:bg-emerald-700"
             }`}
@@ -573,6 +618,29 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
           <button type="button" onClick={generate} disabled={generating || sending} className="btn btn-secondary text-sm px-4">
             {generating ? "Regenerating…" : "Regenerate"}
           </button>
+          {enabledAccounts.length >= 2 && (
+            <button
+              type="button"
+              onClick={sendFromAllAccounts}
+              disabled={sending || alreadySent || !hasRecipient || !draft}
+              className="btn btn-warning text-sm px-4"
+              title="Primary sends now, others schedule per their preferences"
+            >
+              {sending ? (
+                <>
+                  <span className="inline-block animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full mr-2" />
+                  Sending from all…
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Send from all accounts
+                </>
+              )}
+            </button>
+          )}
         </div>
       )}
 

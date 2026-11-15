@@ -4,7 +4,7 @@ import { createApplication } from "../api/applications.js";
 import { listCompanies, createCompany } from "../api/companies.js";
 import { listContacts, createContact } from "../api/contacts.js";
 import { parseLinkedIn } from "../api/ai.js";
-import { autoSendApplicationEmail } from "../api/emails.js";
+import { autoSendApplicationEmail, autoSendMultiAccount } from "../api/emails.js";
 import { useGmailGuard } from "../context/GmailContext.jsx";
 
 const JOB_SOURCES = ["Naukri", "LinkedIn", "Indeed", "Company Website", "Referral", "Recruiter", "Email", "Other"];
@@ -134,15 +134,19 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
         return;
       }
 
-      setAutoProcessStep("Matching resume, drafting & sending...");
-      const result = await autoSendApplicationEmail(application._id);
-      const sent = (result.results || []).filter((r) => r.status === "sent").length;
-      if (sent > 0) {
-        toast.success(
-          result.resume?.originalName
-            ? `Application saved and email sent with ${result.resume.originalName}`
-            : "Application saved and email sent!"
-        );
+      setAutoProcessStep("Matching resume, drafting & sending (multi-account)...");
+      const result = await autoSendMultiAccount(application._id);
+      if (result.sentNow) {
+        let msg = `Application saved and email sent from ${result.defaultAccount}`;
+        if (result.scheduled?.length) {
+          msg += ` + ${result.scheduled.length} scheduled for other accounts`;
+        }
+        if (result.resume?.originalName) {
+          msg += ` with ${result.resume.originalName}`;
+        }
+        toast.success(msg);
+      } else if (result.scheduled?.length) {
+        toast.success(`Application saved. ${result.scheduled.length} email(s) scheduled for other accounts.`);
       } else {
         toast.error("Application saved, but the email failed. Check Email History.");
       }

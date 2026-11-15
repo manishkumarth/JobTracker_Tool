@@ -13,6 +13,8 @@ export const uploadAttachment = (file) => {
 export const sendMail = (payload) => api.post("/mail/send", payload).then((r) => r.data);
 export const autoSendApplicationEmail = (applicationId, options = {}) =>
   api.post("/mail/auto-send", { applicationId, ...options }).then((r) => r.data);
+export const autoSendMultiAccount = (applicationId, options = {}) =>
+  api.post("/mail/auto-send-multi", { applicationId, ...options }).then((r) => r.data);
 export const draftApplicationEmail = (applicationId, options = {}) =>
   api.post("/mail/draft", { applicationId, ...options }).then((r) => r.data);
 export const scheduleApplicationEmail = (payload) =>

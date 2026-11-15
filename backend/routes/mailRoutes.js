@@ -510,6 +510,141 @@ router.post("/auto-send", requireFeature("sendEmail"), requireFeature("aiEmail")
   }
 });
 
+// POST /api/mail/auto-send-multi — send from default account now, schedule for other accounts per their prefs
+router.post("/auto-send-multi", requireFeature("sendEmail"), requireFeature("aiEmail"), async (req, res) => {
+  try {
+    const {
+      applicationId, tone, length, allowResend = false, provider, model,
+      subject, body,
+    } = req.body;
+    if (!applicationId) throw new HttpError(400, "applicationId is required");
+
+    const application = await Application.findOne({ _id: applicationId, owner: req.userId });
+    if (!application) throw new HttpError(404, "Application not found");
+
+    if (!allowResend) {
+      const alreadySent = await EmailLog.findOne({ owner: req.userId, application: applicationId, status: "Sent" });
+      if (alreadySent) {
+        throw new HttpError(409, "An email has already been sent for this application.", {
+          alreadySentAt: alreadySent.sentAt,
+          code: "ALREADY_SENT",
+        });
+      }
+    }
+
+    const profile = await CandidateProfile.findOne({ owner: req.userId });
+    const resumes = profile?.resumes || [];
+    const match = matchResumeForJob({
+      resumes,
+      jobTitle: application.jobTitle,
+      profileExperience: profile?.experience || "",
+      jobExperience: getApplicationExperience(application),
+    });
+
+    if (!match.matched) return sendNoResumeMatch(res, { match, resumes, application });
+
+    const recipient = await resolveApplicationRecipient({ userId: req.userId, application });
+    const user = await User.findById(req.userId);
+    const draft = await getOrGenerateDraft({
+      req, application, profile, tone, length, provider, model, subject, body, user,
+    });
+
+    // Get all enabled accounts with their scheduling preferences
+    const enabledAccounts = (user.emailAccounts || []).filter((a) => a.enabled !== false && a.appPasswordEnc);
+    if (!enabledAccounts.length) {
+      throw new HttpError(400, "No enabled Gmail accounts with App Passwords configured.");
+    }
+
+    // Default account sends NOW
+    const defaultAccount = enabledAccounts.find((a) => a.isDefault) || enabledAccounts[0];
+    const otherAccounts = enabledAccounts.filter((a) => String(a._id) !== String(defaultAccount._id));
+
+    // Send immediately from default account
+    const sendParams = {
+      applicationId: application._id,
+      subject: draft.subject,
+      message: draft.body,
+      resumeId: match.resumeId,
+      isAiGenerated: draft.generated,
+      emailType: "Job Application",
+      allowResend,
+      accountId: String(defaultAccount._id),
+    };
+    if (recipient.contactId) {
+      sendParams.contactIds = [recipient.contactId];
+    } else {
+      sendParams.recipientEmail = recipient.recipientEmail;
+      sendParams.recipientName = recipient.recipientName;
+    }
+
+    const sendResult = await performSend(req, sendParams);
+    const sentNow = sendResult.results.some((r) => r.status === "sent");
+
+    // Schedule for other accounts based on their preferences
+    const scheduled = [];
+    for (const acc of otherAccounts) {
+      const prefs = {
+        scheduleAction: acc.scheduleAction || "schedule",
+        scheduleTime: acc.scheduleTime || "11:00",
+        scheduleTimezone: acc.scheduleTimezone || "Asia/Kolkata",
+      };
+      if (prefs.scheduleAction === "schedule") {
+        // Compute the next occurrence of the preferred time
+        const now = new Date();
+        const [hour, minute] = prefs.scheduleTime.split(":").map(Number);
+        const scheduleDate = new Date(now);
+        scheduleDate.setHours(hour, minute, 0, 0);
+        if (scheduleDate <= now) scheduleDate.setDate(scheduleDate.getDate() + 1);
+        // Skip weekends
+        while (scheduleDate.getDay() === 0 || scheduleDate.getDay() === 6) {
+          scheduleDate.setDate(scheduleDate.getDate() + 1);
+        }
+
+        try {
+          const job = await createScheduledEmail({
+            user,
+            input: {
+              applicationId: application._id,
+              contactId: recipient.contactId,
+              recipientEmail: recipient.recipientEmail,
+              recipientName: recipient.recipientName,
+              subject: draft.subject,
+              body: draft.body,
+              resumeId: match.resumeId,
+              accountId: String(acc._id),
+              scheduledAt: scheduleDate.toISOString(),
+              timezone: prefs.scheduleTimezone,
+              emailType: "Job Application",
+              isAiGenerated: draft.generated,
+              allowResend,
+            },
+          });
+          scheduled.push({
+            accountId: String(acc._id),
+            accountEmail: acc.address,
+            scheduledAt: job.scheduledAt,
+            timezone: job.timezone,
+          });
+        } catch (e) {
+          console.error("Multi-account schedule failed for", acc.address, e.message);
+        }
+      }
+    }
+
+    res.json({
+      sentNow,
+      draft: { subject: draft.subject, body: draft.body },
+      resume: match.resume,
+      matchedTerms: match.matchedTerms,
+      experienceMatch: match.experienceMatch,
+      scheduled,
+      defaultAccount: defaultAccount.address,
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // POST /api/mail/reply - Reply to an existing email (threaded)
 router.post("/reply", requireFeature("sendEmail"), async (req, res) => {
   try {
