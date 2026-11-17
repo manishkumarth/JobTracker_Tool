@@ -40,10 +40,13 @@ function parseScheduledAt(value) {
  *   recruiter, regardless of which sender account is chosen).
  * - Other email types additionally include the type so a follow-up can coexist.
  */
-export function buildDedupeKey({ ownerId, applicationId, recipient, emailType }) {
+export function buildDedupeKey({ ownerId, applicationId, recipient, emailType, accountId }) {
   const base = applicationId ? `app:${applicationId}` : `rcpt:${normalizeEmail(recipient)}`;
   const suffix = emailType && emailType !== "Job Application" ? `:${emailType}` : "";
-  return `${ownerId}:${base}${suffix}`;
+  // Duplicate protection is per sender account: the same application can be
+  // scheduled from a second Gmail account, but never twice from one account.
+  const accountSuffix = accountId ? `:acct:${String(accountId)}` : "";
+  return `${ownerId}:${base}${suffix}${accountSuffix}`;
 }
 
 /** Resolve the recipient for an application (contact first, then saved HR email). */
@@ -124,27 +127,32 @@ export async function createScheduledEmail({ user, input = {} }) {
     contactId,
   });
 
-  // Never send twice for the same application unless the user allows a resend.
-  // Only applies to job applications — follow-ups are a separate email type.
+  // Sender account must exist, belong to the user and be enabled.
+  const account = await resolveEmailAccount(user, accountId || null);
+
+  // Never send twice from the SAME account for the same application unless the
+  // user allows a resend. Other accounts may still be scheduled — that is how
+  // multi-account follow-up coverage works.
   if (application && emailType === "Job Application" && !allowResend) {
     const alreadySent = await EmailLog.findOne({
       owner: user._id,
       application: application._id,
       status: "Sent",
       emailType: "Job Application",
+      $or: [
+        { senderAccountId: account._id },
+        { senderAccountId: null, senderAccount: account.address },
+      ],
     });
     if (alreadySent) {
       throw new ServiceError(
         409,
-        "An email has already been sent for this application. Duplicate sends are blocked.",
+        `An email has already been sent for this application from ${account.address}. Duplicate sends from the same account are blocked.`,
         "ALREADY_SENT",
-        { alreadySentAt: alreadySent.sentAt }
+        { alreadySentAt: alreadySent.sentAt, senderAccount: account.address }
       );
     }
   }
-
-  // Sender account must exist, belong to the user and be enabled.
-  const account = await resolveEmailAccount(user, accountId || null);
 
   // Resume must match the job (same rules as the immediate send flow).
   let resume = null;
@@ -186,13 +194,24 @@ export async function createScheduledEmail({ user, input = {} }) {
     applicationId: application?._id,
     recipient,
     emailType,
+    accountId: account._id,
   });
 
   // Friendly pre-check (the unique index below is the real race guard).
+  // The legacy key (no account suffix) is checked too so rows created before
+  // per-account scheduling can never cause a double send from one account.
+  const legacyKey = buildDedupeKey({
+    ownerId: user._id,
+    applicationId: application?._id,
+    recipient,
+    emailType,
+  });
   const existing = await ScheduledEmail.findOne({
     owner: user._id,
-    dedupeKey,
     status: { $in: ACTIVE_STATUSES },
+    $or: legacyKey === dedupeKey
+      ? [{ dedupeKey }]
+      : [{ dedupeKey }, { dedupeKey: legacyKey, accountId: account._id }],
   });
   if (existing) {
     throw new ServiceError(

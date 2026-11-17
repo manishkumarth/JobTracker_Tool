@@ -175,4 +175,59 @@ export function encryptAppPassword(appPassword) {
   return encrypt(password);
 }
 
+// ── Multi-account eligibility ───────────────────────────────────────────────
+// An account may only send or be scheduled when it is enabled AND has an App
+// Password saved. Disabled / password-less accounts are skipped, never used.
+
+export const ACCOUNT_SKIP_REASONS = {
+  DISABLED: "Account is disabled",
+  NO_PASSWORD: "No App Password saved",
+  SEND_NOW: "Account is set to Send Now",
+};
+
+export function isAccountUsable(account) {
+  return !!account && account.enabled !== false && !!account.appPasswordEnc;
+}
+
+/** Accounts that are allowed to send or be scheduled, in stored order. */
+export function usableEmailAccounts(user) {
+  const accounts = Array.isArray(user?.emailAccounts) ? user.emailAccounts : [];
+  return accounts.filter(isAccountUsable);
+}
+
+/**
+ * Decide what to do with the accounts that are NOT sending immediately.
+ * Accounts that are disabled, missing an App Password, or configured to
+ * "Send Now" are returned as `skipped` with a human-readable reason so the UI
+ * can explain why no copy was scheduled for them.
+ */
+export function planScheduledAccounts(user, senderAccountId) {
+  const accounts = Array.isArray(user?.emailAccounts) ? user.emailAccounts : [];
+  const schedule = [];
+  const skipped = [];
+
+  for (const account of accounts) {
+    if (senderAccountId && String(account._id) === String(senderAccountId)) continue;
+
+    if (account.enabled === false) {
+      skipped.push({ accountEmail: account.address, reason: ACCOUNT_SKIP_REASONS.DISABLED });
+      continue;
+    }
+    if (!account.appPasswordEnc) {
+      skipped.push({ accountEmail: account.address, reason: ACCOUNT_SKIP_REASONS.NO_PASSWORD });
+      continue;
+    }
+
+    const prefs = normalizeSchedulePreferences(account);
+    if (prefs.scheduleAction !== "schedule") {
+      skipped.push({ accountEmail: account.address, reason: ACCOUNT_SKIP_REASONS.SEND_NOW });
+      continue;
+    }
+
+    schedule.push({ account, prefs });
+  }
+
+  return { schedule, skipped };
+}
+
 export { AccountError, normalizeAddress };

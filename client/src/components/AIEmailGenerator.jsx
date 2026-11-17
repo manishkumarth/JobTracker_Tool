@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { getResumeMatch } from "../api/applications.js";
-import { autoSendApplicationEmail, autoSendMultiAccount, draftApplicationEmail, sendMail } from "../api/emails.js";
+import { autoSendApplicationEmail, autoSendMultiAccount, draftApplicationEmail } from "../api/emails.js";
 import { createScheduledEmail } from "../api/scheduledEmails.js";
 import { listEmailAccounts } from "../api/emailAccounts.js";
 import {
@@ -97,8 +97,37 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
     : match
       ? match.hasRecipient !== false
       : true;
-  const enabledAccounts = useMemo(() => accounts.filter((a) => a.enabled), [accounts]);
+  // Only accounts that are enabled and have an App Password can send.
+  const enabledAccounts = useMemo(
+    () => accounts.filter((a) => a.enabled && a.connected),
+    [accounts]
+  );
   const selectedAccount = enabledAccounts.find((a) => a._id === accountId) || null;
+
+  // Explain any account that was not scheduled (disabled / no App Password /
+  // set to Send Now) so the outcome is never silent.
+  const reportScheduleOutcome = (data) => {
+    if (!data) return;
+    const blocked = (data.scheduleSkipped || []).filter((s) =>
+      /disabled|password/i.test(s.reason || "")
+    );
+    if (blocked.length) {
+      toast(
+        `Not scheduled: ${blocked
+          .map((s) => `${s.accountEmail} (${s.reason})`)
+          .join(", ")}`,
+        { icon: "⚠️" }
+      );
+    }
+    if (data.scheduleErrors?.length) {
+      toast(
+        `Could not schedule from ${data.scheduleErrors
+          .map((e) => e.accountEmail)
+          .join(", ")}: ${data.scheduleErrors[0].message}`,
+        { icon: "⚠️" }
+      );
+    }
+  };
 
   // Each Gmail account can carry its own scheduling preference. Apply it when
   // the user switches sender — not on first load, so the composer keeps its
@@ -190,26 +219,21 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
     setError(null);
     setResult(null);
     try {
-      const payload = {
-        applicationId: application._id,
+      const data = await autoSendApplicationEmail(application._id, {
         subject: draft.subject,
-        message: draft.body,
-        resumeId: draft.resume?._id,
+        body: draft.body,
         accountId: accountId || undefined,
-        isAiGenerated: true,
-        emailType: "Job Application",
-      };
-      if (draft.contactId) {
-        payload.contactIds = [draft.contactId];
-      } else {
-        payload.recipientEmail = draft.recipient;
-        payload.recipientName = draft.recipientName;
-      }
-      const data = await sendMail(payload);
+        mode: "send",
+        scheduleOtherAccounts: enabledAccounts.length > 1,
+      });
       const sent = (data.results || []).find((r) => r.status === "sent");
       if (sent) {
         setResult({ type: "sent", subject: draft.subject, recipient: sent.email, sender: selectedAccount?.address });
-        toast.success("Email sent successfully");
+        const extra = data.scheduledOther?.length
+          ? ` + ${data.scheduledOther.length} scheduled from other account(s)`
+          : "";
+        toast.success(`Email sent successfully${extra}`);
+        reportScheduleOutcome(data);
         onSent?.();
         loadMatch();
       } else {
@@ -283,15 +307,22 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
     setError(null);
     setResult(null);
     try {
-      const data = await autoSendApplicationEmail(application._id, { accountId: accountId || undefined });
+      const data = await autoSendApplicationEmail(application._id, {
+        accountId: accountId || undefined,
+        scheduleOtherAccounts: enabledAccounts.length > 1,
+      });
       const sent = (data.results || []).find((r) => r.status === "sent");
       if (sent) {
         setResult({ type: "sent", subject: data.draft?.subject, recipient: sent.email, sender: selectedAccount?.address });
+        const extra = data.scheduledOther?.length
+          ? ` ${data.scheduledOther.length} more scheduled from your other account(s).`
+          : "";
         toast.success(
           data.aiFallback
-            ? "Email sent. AI was slow, so a standard template was used — regenerate the draft to review it."
-            : "Email sent successfully"
+            ? `Email sent (standard template used because AI was slow).${extra}`
+            : `Email sent successfully.${extra}`
         );
+        reportScheduleOutcome(data);
         onSent?.();
         loadMatch();
       } else {
@@ -336,6 +367,13 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
         }
         setResult({ type: "sent", subject: data.draft?.subject, recipient: draft.recipient, sender: data.defaultAccount });
         toast.success(msg);
+        if (!data.scheduled?.length && data.scheduleSkipped?.length) {
+          toast(
+            `${data.scheduleSkipped.map((s) => s.accountEmail).join(", ")} set to Send Now, so no scheduled copy was created for them.`,
+            { icon: "⏱️" }
+          );
+        }
+        reportScheduleOutcome(data);
         onSent?.();
         loadMatch();
       } else if (data.scheduled?.length) {

@@ -148,6 +148,12 @@ export default function ApplicationFormModal({ onClose, onSaved }) {
           msg += " (AI was slow, template used)";
         }
         toast.success(msg);
+        if (result.scheduleErrors?.length) {
+          toast(
+            `Scheduled copy failed for ${result.scheduleErrors.map((e) => e.accountEmail).join(", ")}: ${result.scheduleErrors[0].message}`,
+            { icon: "⚠️" }
+          );
+        }
       } else if (result.scheduled?.length) {
         toast.success(`Application saved. ${result.scheduled.length} email(s) scheduled for other accounts.`);
       } else {

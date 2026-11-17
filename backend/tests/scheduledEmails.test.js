@@ -6,17 +6,25 @@ import {
   ACTIVE_STATUSES,
 } from "../services/scheduledEmailService.js";
 
-test("dedupe key is per application, not per sender account", () => {
+test("dedupe key is scoped per application AND per sender account", () => {
   const base = {
     ownerId: "owner1",
     applicationId: "app1",
     recipient: "Recruiter@Example.com",
     emailType: "Job Application",
   };
-  const a = buildDedupeKey(base);
-  const b = buildDedupeKey({ ...base, accountId: "account-b" });
-  assert.equal(a, "owner1:app:app1");
-  assert.equal(a, b, "the same application must not be schedulable from a second account");
+  const withoutAccount = buildDedupeKey(base);
+  const accountA = buildDedupeKey({ ...base, accountId: "account-a" });
+  const accountB = buildDedupeKey({ ...base, accountId: "account-b" });
+
+  assert.equal(withoutAccount, "owner1:app:app1");
+  assert.equal(accountA, "owner1:app:app1:acct:account-a");
+  assert.notEqual(accountA, accountB, "a second account may schedule the same application");
+  assert.equal(
+    accountA,
+    buildDedupeKey({ ...base, accountId: "account-a" }),
+    "the same account cannot schedule the same application twice"
+  );
 });
 
 test("follow-ups get their own dedupe key so they can coexist with the application", () => {

@@ -7,6 +7,8 @@ import {
   isValidTimezone,
   parseFutureSchedule,
   normalizeSchedulePreferences,
+  zonedTimeToUtc,
+  nextWeekdaySlot,
 } from "../utils/scheduling.js";
 
 test("quick slots are the Indian corporate defaults", () => {
@@ -69,4 +71,41 @@ test("account scheduling preferences are normalized with safe defaults", () => {
     scheduleTimezone: "Mars/Olympus",
   });
   assert.deepEqual(invalid, defaults);
+});
+
+test("zoned wall-clock time converts to the correct UTC instant", () => {
+  // 11:00 IST (UTC+5:30) is 05:30 UTC.
+  const ist = zonedTimeToUtc({ year: 2026, month: 5, day: 4, hour: 11, minute: 0 }, "Asia/Kolkata");
+  assert.equal(ist.toISOString(), "2026-05-04T05:30:00.000Z");
+
+  // 16:00 in UTC stays 16:00 UTC.
+  const utc = zonedTimeToUtc({ year: 2026, month: 5, day: 4, hour: 16, minute: 0 }, "UTC");
+  assert.equal(utc.toISOString(), "2026-05-04T16:00:00.000Z");
+});
+
+test("next weekday slot respects the account timezone and skips weekends", () => {
+  // Friday 2026-05-01 12:00 IST → next 11:00 slot is Monday 2026-05-04 11:00 IST.
+  const now = new Date("2026-05-01T06:30:00.000Z");
+  const next = nextWeekdaySlot({ time: "11:00", timeZone: "Asia/Kolkata", now });
+  assert.equal(next.toISOString(), "2026-05-04T05:30:00.000Z");
+  assert.equal(next.getUTCDay(), 1, "Monday");
+
+  // Later the same day but before the slot → today's slot, not tomorrow.
+  const morning = nextWeekdaySlot({
+    time: "16:00",
+    timeZone: "Asia/Kolkata",
+    now: new Date("2026-05-04T04:00:00.000Z"), // Monday 09:30 IST
+  });
+  assert.equal(morning.toISOString(), "2026-05-04T10:30:00.000Z");
+});
+
+test("next weekday slot never returns a weekend timestamp", () => {
+  const now = new Date("2026-05-02T04:00:00.000Z"); // Saturday
+  for (const time of QUICK_SCHEDULE_SLOTS) {
+    const next = nextWeekdaySlot({ time, timeZone: "Asia/Kolkata", now });
+    const weekday = next.getUTCDay();
+    assert.notEqual(weekday, 0, `Sunday produced for ${time}`);
+    assert.notEqual(weekday, 6, `Saturday produced for ${time}`);
+    assert.ok(next.getTime() > now.getTime());
+  }
 });

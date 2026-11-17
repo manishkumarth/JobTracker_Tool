@@ -413,7 +413,7 @@ yet**, which calls the same logic synchronously.
 Application emails can be sent immediately or scheduled for a future date/time. The
 scheduled job lives in MongoDB (`ScheduledEmail`), so it survives deploys, cold starts
 and worker restarts.
-
+ 
 ### How delivery works
 
 | Environment | How due emails are processed |
