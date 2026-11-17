@@ -10,6 +10,8 @@ import { logUserEvent } from "../utils/userLog.js";
 import { matchResumeForJob, describeResumeMatches, getApplicationExperience } from "../utils/resumeMatcher.js";
 import EmailLog from "../models/EmailLog.js";
 import FollowUp from "../models/FollowUp.js";
+import User from "../models/User.js";
+import { parseUserDateTime, followUpSlotAfter, userScheduleTimezone } from "../utils/scheduling.js";
 
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -215,15 +217,13 @@ router.post("/bulk/followup", async (req, res) => {
     const applications = await Application.find({ _id: { $in: ids }, owner: req.userId });
     if (!applications.length) return res.status(404).json({ message: "No applications found" });
 
-    // Normalize date: if only YYYY-MM-DD, set time to 11:00
-    let due = new Date(date);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(String(date).trim())) {
-      due = new Date(date + "T11:00:00");
-    }
+    // Normalize the date in the USER's timezone: a date-only value means 11:00
+    // local time, and a missing/invalid value defaults to 3 days from now.
+    const user = await User.findById(req.userId).select("emailAccounts");
+    const timeZone = userScheduleTimezone(user);
+    let due = parseUserDateTime(date, timeZone);
     if (Number.isNaN(due.getTime())) {
-      due = new Date();
-      due.setDate(due.getDate() + 3);
-      due.setHours(11, 0, 0, 0);
+      due = followUpSlotAfter({ days: 3, time: "11:00", timeZone });
     }
 
     const followUps = applications.map((app) => ({

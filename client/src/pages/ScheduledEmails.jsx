@@ -9,18 +9,18 @@ import {
   retryScheduledEmail,
   runDueScheduledEmails,
   sendScheduledEmailNow,
-  updateScheduledEmail,
 } from "../api/scheduledEmails.js";
 import { listEmailAccounts } from "../api/emailAccounts.js";
-import {
-  DEFAULT_TIMEZONE,
-  formatInTimezone,
-  utcToZonedInputs,
-  zonedTimeToUtc,
-} from "../utils/datetime.js";
-import ScheduleTimePicker from "../components/ScheduleTimePicker.jsx";
+import { DEFAULT_TIMEZONE, formatInTimezone } from "../utils/datetime.js";
+import ScheduledEmailEditModal from "../components/ScheduledEmailEditModal.jsx";
 
 const STATUSES = ["All", "Pending", "Scheduled", "Processing", "Sent", "Failed", "Cancelled"];
+
+const TYPES = [
+  { key: "All", label: "All types" },
+  { key: "Job Application", label: "Application emails" },
+  { key: "Follow-up", label: "Follow-ups" },
+];
 
 const STATUS_STYLES = {
   Pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
@@ -39,106 +39,9 @@ function StatusBadge({ status }) {
   );
 }
 
-function EditModal({ email, accounts, onClose, onSaved }) {
-  const tzDefault = email.timezone || DEFAULT_TIMEZONE;
-  const initial = utcToZonedInputs(email.scheduledAt, tzDefault);
-  const [subject, setSubject] = useState(email.subject || "");
-  const [body, setBody] = useState(email.body || "");
-  const [recipient, setRecipient] = useState(email.recipient || "");
-  const [accountId, setAccountId] = useState(email.accountId || "");
-  const [timezone, setTimezone] = useState(tzDefault);
-  const [date, setDate] = useState(initial.date);
-  const [time, setTime] = useState(initial.time);
-  const [busy, setBusy] = useState(false);
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    const utc = zonedTimeToUtc(date, time, timezone);
-    if (!utc) return toast.error("Choose a valid date and time");
-    if (utc.getTime() < Date.now() - 60 * 1000) return toast.error("Scheduled time must be in the future");
-
-    setBusy(true);
-    try {
-      await updateScheduledEmail(email._id, {
-        subject,
-        body,
-        recipient,
-        accountId: accountId || null,
-        scheduledAt: utc.toISOString(),
-        timezone,
-      });
-      toast.success("Scheduled email updated");
-      onSaved();
-      onClose();
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to update scheduled email");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <form onSubmit={handleSave} className="modal-content p-5 space-y-3 max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold text-primary">Edit scheduled email</h2>
-          <button type="button" onClick={onClose} className="btn-icon" aria-label="Close">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="text-[11px] text-muted block mb-1">Recipient</label>
-            <input type="email" required className="input w-full" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
-          </div>
-          <div>
-            <label className="text-[11px] text-muted block mb-1">Sender account</label>
-            <select className="input w-full" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              {accounts.map((a) => (
-                <option key={a._id} value={a._id}>{a.address}{a.isDefault ? " (default)" : ""}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-[11px] text-muted block mb-1">Subject</label>
-          <input required className="input w-full" value={subject} onChange={(e) => setSubject(e.target.value)} />
-        </div>
-
-        <div>
-          <label className="text-[11px] text-muted block mb-1">Message</label>
-          <textarea rows={8} required className="input w-full" value={body} onChange={(e) => setBody(e.target.value)} />
-        </div>
-
-        <div className="rounded-xl border border-color p-3">
-          <ScheduleTimePicker
-            date={date}
-            time={time}
-            timezone={timezone}
-            disabled={busy}
-            onChange={(next) => {
-              setDate(next.date);
-              setTime(next.time);
-              setTimezone(next.timezone);
-            }}
-          />
-        </div>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="btn btn-secondary btn-sm">Cancel</button>
-          <button type="submit" disabled={busy} className="btn btn-primary btn-sm">{busy ? "Saving…" : "Save changes"}</button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
 export default function ScheduledEmails() {
   const [status, setStatus] = useState("All");
+  const [emailType, setEmailType] = useState("All");
   const [emails, setEmails] = useState([]);
   const [counts, setCounts] = useState({});
   const [accounts, setAccounts] = useState([]);
@@ -151,7 +54,12 @@ export default function ScheduledEmails() {
     if (!silent) setLoading(true);
     try {
       const [list, countData] = await Promise.all([
-        listScheduledEmails({ status, search: search.trim() || undefined, limit: 100 }),
+        listScheduledEmails({
+          status,
+          emailType: emailType === "All" ? undefined : emailType,
+          search: search.trim() || undefined,
+          limit: 100,
+        }),
         getScheduledEmailCounts(),
       ]);
       setEmails(list.emails || []);
@@ -161,7 +69,7 @@ export default function ScheduledEmails() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [status, search]);
+  }, [status, emailType, search]);
 
   useEffect(() => {
     load();
@@ -228,7 +136,7 @@ export default function ScheduledEmails() {
       <div className="page-header flex-col sm:flex-row sm:items-center gap-3">
         <div>
           <h1 className="page-title">Scheduled Emails</h1>
-          <p className="page-subtitle">Send now, schedule, retry and track every application email.</p>
+          <p className="page-subtitle">Send now, schedule, retry and track application emails and follow-up copies.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => load()} className="btn btn-secondary btn-sm">Refresh</button>
@@ -256,6 +164,24 @@ export default function ScheduledEmails() {
         ))}
       </div>
 
+      {/* Type filter: application emails vs follow-up copies */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] uppercase tracking-wide text-muted">Type</span>
+        {TYPES.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setEmailType(t.key)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+              emailType === t.key
+                ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900"
+                : "bg-white dark:bg-gray-900 text-secondary border-color hover:border-brand-400"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex items-center gap-2">
         <input
           className="input max-w-xs"
@@ -272,7 +198,11 @@ export default function ScheduledEmails() {
       ) : emails.length === 0 ? (
         <div className="card p-8 text-center space-y-2">
           <p className="text-sm font-semibold text-primary">No scheduled emails{status !== "All" ? ` in ${status}` : ""}</p>
-          <p className="text-xs text-muted">Schedule an email from any application’s AI Email Assistant.</p>
+          <p className="text-xs text-muted">
+            {emailType === "Follow-up"
+              ? "Follow-up copies are created automatically from your other accounts when a follow-up is sent."
+              : "Schedule an email from any application’s AI Email Assistant."}
+          </p>
           <Link to="/applications" className="btn btn-primary btn-sm inline-flex mt-2">Go to Applications</Link>
         </div>
       ) : (
@@ -351,7 +281,7 @@ export default function ScheduledEmails() {
       )}
 
       {editing && (
-        <EditModal
+        <ScheduledEmailEditModal
           email={editing}
           accounts={accounts}
           onClose={() => setEditing(null)}

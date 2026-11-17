@@ -5,6 +5,7 @@ import Contact from "../models/Contact.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import { sendFollowUpEmail } from "../utils/followUpSender.js";
 import { processDueScheduledEmails } from "../services/scheduler.js";
+import { isFollowUpDue, userScheduleTimezone } from "../utils/scheduling.js";
 import authMiddleware from "../middleware/auth.js";
 
 const router = express.Router();
@@ -27,6 +28,7 @@ export const runAutoFollowUps = async () => {
     .limit(50);
 
   let sent = 0;
+  let scheduled = 0;
   let skipped = 0;
 
   for (const followUp of dueFollowUps) {
@@ -44,6 +46,14 @@ export const runAutoFollowUps = async () => {
         continue;
       }
 
+      // Calendar-day guard: a follow-up dated 18 Nov must never be sent on
+      // 17 Nov just because the stored instant falls on the previous UTC day.
+      const timeZone = userScheduleTimezone(user);
+      if (!isFollowUpDue({ date: followUp.date, now, timeZone })) {
+        skipped++;
+        continue;
+      }
+
       // Skip if follow-ups are disabled on the application
       if (application.followUpDisabled) {
         followUp.status = "Cancelled";
@@ -57,17 +67,19 @@ export const runAutoFollowUps = async () => {
         : null;
 
       const profile = await CandidateProfile.findOne({ owner: user._id });
-      const result = await sendFollowUpEmail({ user, application, contact, profile });
+      const result = await sendFollowUpEmail({ user, application, contact, profile, followUp });
 
-      if (result.sent) sent++;
-      else skipped++;
+      if (result.sent) {
+        sent++;
+        scheduled += result.scheduled?.length || 0;
+      } else skipped++;
     } catch (err) {
       console.error("Auto follow-up failed for application", application._id, err.message);
       skipped++;
     }
   }
 
-  return { sent, skipped, ranAt: new Date().toISOString() };
+  return { sent, scheduled, skipped, ranAt: new Date().toISOString() };
 };
 
 // GET /api/cron/auto-followup - invoked by Vercel Cron (or manually)

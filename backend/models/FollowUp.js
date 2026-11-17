@@ -11,7 +11,7 @@ const followUpSchema = new mongoose.Schema(
     },
     date: { type: Date, required: true },
     note: { type: String, default: "" },
-    status: { type: String, enum: ["Pending", "Completed", "Cancelled"], default: "Pending" },
+    status: { type: String, enum: ["Pending", "Completed", "Cancelled", "Failed"], default: "Pending" },
     disabled: { type: Boolean, default: false },
   },
   { timestamps: true }

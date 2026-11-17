@@ -8,15 +8,16 @@ import CandidateProfile from "../models/CandidateProfile.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { getTransporter, createTransporter } from "../utils/mailer.js";
-import { resolveEmailAccount, planScheduledAccounts, usableEmailAccounts } from "../utils/emailAccounts.js";
+import { resolveEmailAccount, usableEmailAccounts } from "../utils/emailAccounts.js";
 import { fetchBuffer } from "../utils/fetchBuffer.js";
 import { createScheduledEmail, toPublicScheduledEmail, DEFAULT_TIMEZONE } from "../services/scheduledEmailService.js";
+import { scheduleForOtherAccounts } from "../services/multiAccountScheduler.js";
 import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "../utils/tracking.js";
 import { generateApplicationEmail, buildFallbackApplicationEmail } from "../utils/emailWriter.js";
 import { matchResumeForJob, validateResumeForJob, describeResumeMatches, getApplicationExperience } from "../utils/resumeMatcher.js";
-import { nextWeekdaySlot } from "../utils/scheduling.js";
+import { followUpSlotAfter, userScheduleTimezone } from "../utils/scheduling.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -287,9 +288,11 @@ async function performSend(req, params) {
           application: application._id,
         });
         if (!existing) {
-          const followUpDate = new Date();
-          followUpDate.setDate(followUpDate.getDate() + 3);
-          followUpDate.setHours(11, 0, 0, 0);
+          const followUpDate = followUpSlotAfter({
+            days: 3,
+            time: "11:00",
+            timeZone: userScheduleTimezone(user),
+          });
           await FollowUp.create({
             owner: req.userId,
             application: application._id,
@@ -417,61 +420,6 @@ async function getOrGenerateDraft({
       fallback: true,
     };
   }
-}
-
-/**
- * After a successful send from one account, schedule the same application email
- * from every other enabled account configured to "Schedule". Each account gets
- * its own scheduled row at its own preferred time/timezone (weekends skipped).
- */
-async function scheduleForOtherAccounts({
-  user, application, recipient, draft, resumeId, senderAccountId, allowResend = false,
-}) {
-  const { schedule, skipped } = planScheduledAccounts(user, senderAccountId);
-  const scheduled = [];
-  const errors = [];
-
-  for (const { account: acc, prefs } of schedule) {
-    const scheduledAt = nextWeekdaySlot({
-      time: prefs.scheduleTime,
-      timeZone: prefs.scheduleTimezone,
-    });
-
-    try {
-      // The scheduled copy reuses the exact same subject/body that the primary
-      // account just sent — no AI/LLM call is made for these accounts.
-      const job = await createScheduledEmail({
-        user,
-        input: {
-          applicationId: application._id,
-          contactId: recipient.contactId,
-          recipientEmail: recipient.recipientEmail,
-          recipientName: recipient.recipientName,
-          subject: draft.subject,
-          body: draft.body,
-          resumeId,
-          accountId: String(acc._id),
-          scheduledAt: scheduledAt.toISOString(),
-          timezone: prefs.scheduleTimezone,
-          emailType: "Job Application",
-          isAiGenerated: !!draft.generated,
-          allowResend,
-        },
-      });
-      scheduled.push({
-        _id: String(job._id),
-        accountId: String(acc._id),
-        accountEmail: acc.address,
-        scheduledAt: job.scheduledAt,
-        timezone: job.timezone,
-      });
-    } catch (e) {
-      console.error(`[mail] scheduling from ${acc.address} failed:`, e.message);
-      errors.push({ accountEmail: acc.address, message: e.message, code: e.code || null });
-    }
-  }
-
-  return { scheduled, skipped, errors };
 }
 
 // POST /api/mail/draft

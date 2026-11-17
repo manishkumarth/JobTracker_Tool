@@ -110,26 +110,28 @@ export function zonedTimeToUtc({ year, month, day, hour, minute = 0 }, timeZone 
 }
 
 /**
- * Next weekday occurrence of HH:mm in the given timezone.
- * Weekends are skipped so a scheduled application email never lands on a
- * Saturday/Sunday slot.
+ * Next occurrence of HH:mm in the given timezone, skipping the weekdays listed
+ * in `skipDays` (0=Sunday … 6=Saturday). Application emails skip the whole
+ * weekend; follow-ups only skip Sunday.
  */
 export function nextWeekdaySlot({
   time = QUICK_SCHEDULE_SLOTS[0],
   timeZone = DEFAULT_SCHEDULE_TIMEZONE,
   now = new Date(),
+  skipDays = [0, 6],
 } = {}) {
   const slot = isValidTimeSlot(time) ? time : QUICK_SCHEDULE_SLOTS[0];
   const zone = isValidTimezone(timeZone) ? timeZone : DEFAULT_SCHEDULE_TIMEZONE;
   const [hour, minute] = slot.split(":").map(Number);
   const today = zonedParts(now, zone);
   const cutoff = now.getTime() + 60 * 1000; // small grace for clock skew
+  const blocked = new Set(Array.isArray(skipDays) ? skipDays : []);
 
-  for (let offset = 0; offset < 10; offset += 1) {
+  for (let offset = 0; offset < 14; offset += 1) {
     // Walk calendar days in UTC arithmetic, then convert the wall clock back.
     const dayCursor = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
     const weekday = dayCursor.getUTCDay();
-    if (weekday === 0 || weekday === 6) continue;
+    if (blocked.has(weekday)) continue;
 
     const candidate = zonedTimeToUtc(
       {
@@ -156,5 +158,122 @@ export function nextWeekdaySlot({
     },
     zone
   );
+}
+
+// ── Follow-up day helpers ───────────────────────────────────────────────────
+// Follow-ups are due on a calendar day, not at a raw UTC instant. Storing
+// "18 Nov" as 00:00 local can look like 17 Nov in UTC, so due checks always
+// compare calendar keys in the user's own timezone.
+
+/** "YYYY-MM-DD" for `date` in `timeZone`. */
+export function zonedDateKey(date, timeZone = DEFAULT_SCHEDULE_TIMEZONE) {
+  const zone = isValidTimezone(timeZone) ? timeZone : DEFAULT_SCHEDULE_TIMEZONE;
+  const p = zonedParts(date, zone);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+/** Timezone used for a user's scheduling (their default account, else IST). */
+export function userScheduleTimezone(user) {
+  const accounts = Array.isArray(user?.emailAccounts) ? user.emailAccounts : [];
+  const primary =
+    accounts.find((a) => a.isDefault && a.enabled !== false) ||
+    accounts.find((a) => a.enabled !== false) ||
+    accounts[0];
+  return isValidTimezone(primary?.scheduleTimezone)
+    ? primary.scheduleTimezone
+    : DEFAULT_SCHEDULE_TIMEZONE;
+}
+
+/** 0=Sunday … 6=Saturday for `date` in `timeZone`. */
+export function zonedWeekday(date, timeZone = DEFAULT_SCHEDULE_TIMEZONE) {
+  const [year, month, day] = zonedDateKey(date, timeZone).split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+/**
+ * A follow-up is due only on/after its calendar day in the user's timezone,
+ * and never before `earliestHour` local time on that day. This stops an email
+ * dated 18 Nov from going out on the evening of 17 Nov (UTC shift).
+ * Sundays are never sent — the follow-up goes out on the next working day.
+ */
+export function isFollowUpDue({
+  date,
+  now = new Date(),
+  timeZone = DEFAULT_SCHEDULE_TIMEZONE,
+  earliestHour = 9,
+} = {}) {
+  if (!date) return false;
+  const zone = isValidTimezone(timeZone) ? timeZone : DEFAULT_SCHEDULE_TIMEZONE;
+  if (zonedWeekday(now, zone) === 0) return false; // no follow-ups on Sunday
+  const dueKey = zonedDateKey(date, zone);
+  const todayKey = zonedDateKey(now, zone);
+
+  if (dueKey > todayKey) return false; // scheduled for a later day
+  if (dueKey < todayKey) return true; // overdue — send on the next run
+  return zonedParts(now, zone).hour >= earliestHour;
+}
+
+/**
+ * Build a follow-up timestamp `days` from now at HH:mm in the user's timezone.
+ * Replaces `setHours(11)` which used the server clock (UTC on Vercel).
+ * Never lands on a Sunday.
+ */
+export function followUpSlotAfter({
+  from = new Date(),
+  days = 3,
+  time = "11:00",
+  timeZone = DEFAULT_SCHEDULE_TIMEZONE,
+} = {}) {
+  const zone = isValidTimezone(timeZone) ? timeZone : DEFAULT_SCHEDULE_TIMEZONE;
+  const slot = isValidTimeSlot(time) ? time : QUICK_SCHEDULE_SLOTS[0];
+  const [hour, minute] = slot.split(":").map(Number);
+  const target = new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
+  const p = zonedParts(target, zone);
+  let at = zonedTimeToUtc({ year: p.year, month: p.month, day: p.day, hour, minute }, zone);
+  while (zonedWeekday(at, zone) === 0) {
+    at = new Date(at.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return at;
+}
+
+/** UTC instants for the start/end of "today" in the user's timezone. */
+export function zonedDayBounds(now = new Date(), timeZone = DEFAULT_SCHEDULE_TIMEZONE) {
+  const zone = isValidTimezone(timeZone) ? timeZone : DEFAULT_SCHEDULE_TIMEZONE;
+  const p = zonedParts(now, zone);
+  const start = zonedTimeToUtc({ year: p.year, month: p.month, day: p.day, hour: 0, minute: 0 }, zone);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { start, end };
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const NAIVE_DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+
+/**
+ * Parse a value coming from a browser <input type="date"> / datetime-local.
+ *
+ * Those inputs have no timezone, so `new Date("2026-11-18T23:30")` would be
+ * read on the server's UTC clock and could move the value to another day.
+ * Date-only values become 11:00 in the user's timezone (a sane send hour);
+ * naive datetimes are treated as wall-clock time in the user's timezone.
+ */
+export function parseUserDateTime(value, timeZone = DEFAULT_SCHEDULE_TIMEZONE) {
+  const zone = isValidTimezone(timeZone) ? timeZone : DEFAULT_SCHEDULE_TIMEZONE;
+  const raw = String(value ?? "").trim();
+
+  if (DATE_ONLY_RE.test(raw)) {
+    const [year, month, day] = raw.split("-").map(Number);
+    return zonedTimeToUtc({ year, month, day, hour: 11, minute: 0 }, zone);
+  }
+
+  const naive = raw.match(NAIVE_DATETIME_RE);
+  if (naive) {
+    const [, year, month, day, hour, minute, second] = naive;
+    return zonedTimeToUtc(
+      { year: Number(year), month: Number(month), day: Number(day), hour: Number(hour), minute: Number(minute) },
+      zone
+    );
+  }
+
+  return new Date(raw);
 }
 

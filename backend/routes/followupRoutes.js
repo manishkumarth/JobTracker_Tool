@@ -10,6 +10,11 @@ import { requireFeature } from "../middleware/featureGuard.js";
 import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
 import { sendFollowUpEmail } from "../utils/followUpSender.js";
+import {
+  zonedDayBounds,
+  parseUserDateTime,
+  userScheduleTimezone,
+} from "../utils/scheduling.js";
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -22,8 +27,9 @@ router.get("/", async (req, res) => {
     if (application) query.application = application;
 
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const user = await User.findById(req.userId).select("emailAccounts");
+    const timeZone = userScheduleTimezone(user);
+    const { start: startOfToday, end: endOfToday } = zonedDayBounds(now, timeZone);
 
     if (scope === "today") {
       query.status = "Pending";
@@ -164,14 +170,18 @@ router.post("/", async (req, res) => {
     const app = await Application.findOne({ _id: application, owner: req.userId });
     if (!app) return res.status(404).json({ message: "Application not found" });
 
-    let due = new Date(date);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(String(date).trim())) {
-      due = new Date(String(date).trim() + "T11:00:00");
+    const user = await User.findById(req.userId).select("emailAccounts");
+    const timeZone = userScheduleTimezone(user);
+    // Date-only means 11:00; a naive datetime-local means that wall-clock time.
+    // Both are read in the USER's timezone, never the server's UTC clock.
+    const due = parseUserDateTime(date, timeZone);
+    if (Number.isNaN(due.getTime())) {
+      return res.status(400).json({ message: "A valid follow-up date is required" });
     }
     const followUp = await FollowUp.create({ owner: req.userId, application, type: type || "Email Follow-up", date: due, note });
     app.followUpDate = due;
     await app.save();
-    await logActivity(app, "followup_scheduled", `Follow-up scheduled for ${new Date(date).toLocaleDateString()}`);
+    await logActivity(app, "followup_scheduled", `Follow-up scheduled for ${due.toLocaleDateString()}`);
 
     res.status(201).json(followUp);
   } catch (err) {
@@ -183,7 +193,14 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const allowed = {};
-    if (req.body.date != null) allowed.date = new Date(req.body.date);
+    if (req.body.date != null) {
+      const user = await User.findById(req.userId).select("emailAccounts");
+      const timeZone = userScheduleTimezone(user);
+      allowed.date = parseUserDateTime(req.body.date, timeZone);
+      if (Number.isNaN(allowed.date.getTime())) {
+        return res.status(400).json({ message: "A valid follow-up date is required" });
+      }
+    }
     if (req.body.note != null) allowed.note = req.body.note;
     if (req.body.type != null) allowed.type = req.body.type;
     if (req.body.status != null) allowed.status = req.body.status;
@@ -256,17 +273,26 @@ router.post("/:id/send", requireFeature("autoFollowUp"), async (req, res) => {
     const contact = application.contact ? await Contact.findById(application.contact) : null;
     const profile = await CandidateProfile.findOne({ owner: req.userId });
 
-    const result = await sendFollowUpEmail({ user, application, contact, profile });
+    const result = await sendFollowUpEmail({ user, application, contact, profile, followUp });
     if (!result.sent) {
-      if (result.reason === "already_sent") {
-        return res.status(409).json({ message: "A follow-up email has already been sent for this application" });
+      if (result.reason === "already_sent" || result.reason === "already_sent_today") {
+        return res.status(409).json({
+          message: "A follow-up email was already sent today for this application. It will send again on the next scheduled date.",
+        });
       }
       return res.status(400).json({ message: "Could not send follow-up: " + (result.reason || "unknown error") });
     }
 
     await FollowUp.findByIdAndUpdate(followUp._id, { status: "Completed" });
     await logUserEvent(req.authUser, "activity", `Sent follow-up for ${application.jobTitle || "application"}`, { applicationId: application._id, followUpId: followUp._id }, req);
-    res.json({ message: "Follow-up sent", subject: result.subject });
+    res.json({
+      message: "Follow-up sent",
+      subject: result.subject,
+      senderAccount: result.senderAccount,
+      scheduled: result.scheduled || [],
+      scheduleSkipped: result.scheduleSkipped || [],
+      scheduleErrors: result.scheduleErrors || [],
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

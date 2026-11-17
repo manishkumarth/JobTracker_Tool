@@ -39,9 +39,10 @@ const withRelations = (query) =>
 // GET /api/scheduled-emails — dashboard list
 router.get("/", async (req, res) => {
   try {
-    const { status, search = "", page = 1, limit = 50, sort = "scheduledAt" } = req.query;
+    const { status, emailType, search = "", page = 1, limit = 50, sort = "scheduledAt" } = req.query;
     const query = { owner: req.userId };
     if (status && status !== "All") query.status = status;
+    if (emailType && emailType !== "All") query.emailType = emailType;
     if (search) {
       query.$or = [
         { recipient: { $regex: search, $options: "i" } },

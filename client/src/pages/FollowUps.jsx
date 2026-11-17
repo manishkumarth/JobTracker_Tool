@@ -2,6 +2,10 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { listFollowUps, sendFollowUpEmail, createFollowUp, deleteFollowUp, updateFollowUp } from "../api/followups.js";
+import { cancelScheduledEmail, listScheduledEmails } from "../api/scheduledEmails.js";
+import { listEmailAccounts } from "../api/emailAccounts.js";
+import ScheduledEmailEditModal from "../components/ScheduledEmailEditModal.jsx";
+import { DEFAULT_TIMEZONE, formatInTimezone } from "../utils/datetime.js";
 import EmptyState from "../components/EmptyState.jsx";
 import { useGmailGuard } from "../context/GmailContext.jsx";
 import { useNavigate } from "react-router-dom";
@@ -73,6 +77,25 @@ export default function FollowUps() {
   const [editForm, setEditForm] = useState({ date: "", note: "", type: "Email Follow-up" });
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // Follow-up copies scheduled from the other Gmail accounts (Scheduled Emails).
+  const [copies, setCopies] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [editingCopy, setEditingCopy] = useState(null);
+  const [copyBusyId, setCopyBusyId] = useState("");
+
+  const loadCopies = useCallback(async () => {
+    try {
+      const data = await listScheduledEmails({ emailType: "Follow-up", status: "All", limit: 100 });
+      setCopies(
+        (data.emails || []).filter((e) =>
+          ["Pending", "Scheduled", "Processing", "Failed"].includes(e.status)
+        )
+      );
+    } catch {
+      /* the follow-up list still works without the copies panel */
+    }
+  }, []);
+
   const load = () => {
     setLoading(true);
     listFollowUps({ scope: "all" })
@@ -81,6 +104,27 @@ export default function FollowUps() {
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  useEffect(() => {
+    loadCopies();
+    listEmailAccounts()
+      .then((data) => setAccounts((data.accounts || []).filter((a) => a.enabled)))
+      .catch(() => {});
+  }, [loadCopies]);
+
+  const cancelCopy = async (copy) => {
+    if (!window.confirm(`Cancel the scheduled follow-up copy to ${copy.recipient}?`)) return;
+    setCopyBusyId(copy._id);
+    try {
+      await cancelScheduledEmail(copy._id);
+      toast.success("Scheduled follow-up copy cancelled");
+      await loadCopies();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to cancel the scheduled copy");
+    } finally {
+      setCopyBusyId("");
+    }
+  };
 
   const filtered = useMemo(() => {
     if (tab === "all") return followUps;
@@ -201,12 +245,22 @@ export default function FollowUps() {
     if (!requireGmail()) return;
     setSendingIds((prev) => [...prev, id]);
     try {
-      await sendFollowUpEmail(id);
+      const data = await sendFollowUpEmail(id);
       setFollowUps((prev) =>
         prev.map((f) => (f._id === id ? { ...f, emailSent: true, status: "Completed" } : f))
       );
       setSelected((prev) => prev.filter((i) => i !== id));
-      toast.success("Follow-up email sent");
+      const extra = data?.scheduled?.length
+        ? ` + ${data.scheduled.length} copy scheduled from your other account(s)`
+        : "";
+      toast.success(`Follow-up email sent${extra}`);
+      loadCopies();
+      if (data?.scheduleErrors?.length) {
+        toast(
+          `Could not schedule a copy from ${data.scheduleErrors.map((e) => e.accountEmail).join(", ")}: ${data.scheduleErrors[0].message}`,
+          { icon: "⚠️" }
+        );
+      }
     } catch (err) {
       if (err.response?.status === 409) {
         setFollowUps((prev) => prev.map((f) => (f._id === id ? { ...f, emailSent: true } : f)));
@@ -236,6 +290,7 @@ export default function FollowUps() {
     }
     setBulkSending(false);
     setSelected([]);
+    loadCopies();
     if (ok > 0) toast.success(`${ok} follow-up email${ok > 1 ? "s" : ""} sent`);
     else toast.error("No follow-ups could be sent");
   };
@@ -255,6 +310,7 @@ export default function FollowUps() {
       }
     }
     setBulkSending(false);
+    loadCopies();
     if (ok > 0) toast.success(`Retried ${ok} failed follow-up${ok > 1 ? "s" : ""}`);
     else toast.error("No failed follow-ups could be retried");
   };
@@ -296,6 +352,68 @@ export default function FollowUps() {
           </button>
         </div>
       </div>
+
+      {/* Scheduled follow-up copies from the other Gmail accounts */}
+      {copies.length > 0 && (
+        <div className="card p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-primary">Scheduled follow-up copies</h2>
+              <p className="text-[11px] text-muted">
+                The same follow-up queued from your other accounts at their own times. Sundays are skipped.
+              </p>
+            </div>
+            <Link to="/scheduled-emails" className="text-xs text-accent underline whitespace-nowrap">
+              Open scheduler
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {copies.map((copy) => {
+              const editable = ["Pending", "Scheduled"].includes(copy.status);
+              const busy = copyBusyId === copy._id;
+              return (
+                <div
+                  key={copy._id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-color px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-primary truncate">{copy.subject}</p>
+                    <p className="text-[11px] text-muted break-all">
+                      {copy.senderAccount || "—"} → {copy.recipient} ·{" "}
+                      {formatInTimezone(copy.scheduledAt, copy.timezone || DEFAULT_TIMEZONE)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        copy.status === "Failed"
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                          : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                      }`}
+                    >
+                      {copy.status}
+                    </span>
+                    {editable && (
+                      <button onClick={() => setEditingCopy(copy)} disabled={busy} className="btn btn-secondary text-xs px-3 py-1.5">
+                        Edit
+                      </button>
+                    )}
+                    {editable && (
+                      <button
+                        onClick={() => cancelCopy(copy)}
+                        disabled={busy}
+                        className="btn btn-ghost text-xs px-3 py-1.5 text-amber-600"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Calendar modal */}
       {showCalendar && (
@@ -894,6 +1012,15 @@ export default function FollowUps() {
           </div>
         )}
       </div>
+
+      {editingCopy && (
+        <ScheduledEmailEditModal
+          email={editingCopy}
+          accounts={accounts}
+          onClose={() => setEditingCopy(null)}
+          onSaved={loadCopies}
+        />
+      )}
     </div>
   );
 }

@@ -2,7 +2,10 @@ import CandidateProfile from "../models/CandidateProfile.js";
 import EmailLog from "../models/EmailLog.js";
 import FollowUp from "../models/FollowUp.js";
 import { callLLM, parseJson } from "./llmClient.js";
-import { getTransporter } from "./mailer.js";
+import { createTransporter } from "./mailer.js";
+import { resolveEmailAccount } from "./emailAccounts.js";
+import { scheduleForOtherAccounts } from "../services/multiAccountScheduler.js";
+import { followUpSlotAfter, userScheduleTimezone, zonedDayBounds } from "./scheduling.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "./tracking.js";
 
 const JSON_ONLY = "Respond ONLY with raw JSON, no markdown fences, no preamble";
@@ -35,21 +38,41 @@ const masterPromptBlock = (profile) =>
  * Generates and sends an AI follow-up email for an application.
  * Returns { sent: boolean, reason?: string, subject?: string }.
  */
-export const sendFollowUpEmail = async ({ user, application, contact, profile }) => {
+export const sendFollowUpEmail = async ({
+  user,
+  application,
+  contact,
+  profile,
+  followUp = null,
+  accountId = null,
+  scheduleOtherAccounts = true,
+}) => {
   if (!user?.gmailConnected) return { sent: false, reason: "Gmail not connected" };
 
   const recipientEmail = contact?.email || application.hrEmail;
   if (!recipientEmail) return { sent: false, reason: "No recipient email" };
 
-  // Only a successfully SENT follow-up blocks a retry. Draft/Pending/Failed
-  // logs must not, or a failed send could never be retried.
-  const existing = await EmailLog.findOne({
+  // Send from the default usable account (multi-account aware).
+  let sender;
+  try {
+    sender = await resolveEmailAccount(user, accountId);
+  } catch (err) {
+    return { sent: false, reason: err.message };
+  }
+
+  // Follow-ups are recurring (every 3 days), so we only block a duplicate on
+  // the SAME day. Blocking on any past Sent follow-up would silently stop the
+  // whole recurring sequence after the first one.
+  const timeZone = userScheduleTimezone(user);
+  const { start: startOfToday } = zonedDayBounds(new Date(), timeZone);
+  const existingToday = await EmailLog.findOne({
     owner: user._id,
     application: application._id,
     emailType: "Follow-up",
     status: "Sent",
+    sentAt: { $gte: startOfToday },
   });
-  if (existing) return { sent: false, reason: "already_sent" };
+  if (existingToday) return { sent: false, reason: "already_sent_today" };
 
   const originalEmail = await EmailLog.findOne({
     owner: user._id,
@@ -95,7 +118,7 @@ ${JSON_ONLY}:
   const subject = sanitizeText(parsed.subject);
   const body = sanitizeText(parsed.body);
 
-  const transporter = getTransporter(user);
+  const transporter = createTransporter(sender.address, sender.appPassword);
   const trackingId = generateTrackingId();
   const htmlContent = injectTrackingIntoHtml(body.replace(/\n/g, "<br/>"), trackingId, true);
   const textContent = injectTrackingIntoText(body, trackingId, true);
@@ -112,13 +135,15 @@ ${JSON_ONLY}:
     status: "Pending",
     emailType: "Follow-up",
     isAiGenerated: true,
+    senderAccount: sender.address,
+    senderAccountId: sender._id || null,
     trackingId,
     trackingEnabled: true,
   });
 
   try {
     await transporter.sendMail({
-      from: `"${user.name}" <${user.gmailAddress}>`,
+      from: `"${user.name}" <${sender.address}>`,
       to: recipientEmail,
       subject,
       text: textContent,
@@ -131,15 +156,23 @@ ${JSON_ONLY}:
     logEntry.errorMessage = err.message;
     await logEntry.save();
 
-    // Create a Failed follow-up doc so the user can retry from the Follow-ups page
-    await FollowUp.create({
-      owner: user._id,
-      application: application._id,
-      type: "Email Follow-up",
-      date: new Date(),
-      note: `Send failed: ${err.message}. Retry to send.`,
-      status: "Failed",
-    });
+    // Create/refresh a Failed follow-up doc so the user can retry from the
+    // Follow-ups page. Retrying an existing doc updates it instead of creating
+    // a duplicate row on every attempt.
+    if (followUp) {
+      followUp.status = "Failed";
+      followUp.note = `Send failed: ${err.message}. Retry to send.`;
+      await followUp.save();
+    } else {
+      await FollowUp.create({
+        owner: user._id,
+        application: application._id,
+        type: "Email Follow-up",
+        date: new Date(),
+        note: `Send failed: ${err.message}. Retry to send.`,
+        status: "Failed",
+      });
+    }
 
     return { sent: false, reason: "send_failed" };
   }
@@ -148,33 +181,42 @@ ${JSON_ONLY}:
   logEntry.sentAt = new Date();
   await logEntry.save();
 
-  // Complete the pending follow-up (if any) and schedule the NEXT one
-  // for 3 days later, unless follow-ups are disabled.
-  const pendingFollowUp = await FollowUp.findOne({
-    owner: user._id,
-    application: application._id,
-    status: "Pending",
-  }).sort({ date: -1 });
+  // Complete the follow-up that triggered this send (or the earliest pending
+  // one) and schedule the NEXT one for 3 days later, unless disabled.
+  const pendingFollowUp =
+    followUp ||
+    (await FollowUp.findOne({
+      owner: user._id,
+      application: application._id,
+      status: { $in: ["Pending", "Failed"] },
+    }).sort({ date: 1 }));
   if (pendingFollowUp) {
     pendingFollowUp.status = "Completed";
+    pendingFollowUp.date = pendingFollowUp.date || new Date();
     await pendingFollowUp.save();
   }
 
-  // Record this sent follow-up
-  await FollowUp.create({
-    owner: user._id,
-    application: application._id,
-    type: "Email Follow-up",
-    date: new Date(),
-    note: "Follow-up email sent",
-    status: "Completed",
-  });
+  // Keep a history row for manual sends that had no scheduled doc. When a doc
+  // triggered this send it is already marked Completed above — never duplicate.
+  if (!pendingFollowUp) {
+    await FollowUp.create({
+      owner: user._id,
+      application: application._id,
+      type: "Email Follow-up",
+      date: new Date(),
+      note: "Follow-up email sent",
+      status: "Completed",
+    });
+  }
 
-  // Schedule the next follow-up (recurring every 3 days)
+  // Schedule the next follow-up (recurring every 3 days) at 11:00 in the
+  // user's own timezone — never the server's UTC clock.
   if (!application.followUpDisabled) {
-    const nextFollowUpDate = new Date();
-    nextFollowUpDate.setDate(nextFollowUpDate.getDate() + 3);
-    nextFollowUpDate.setHours(11, 0, 0, 0);
+    const nextFollowUpDate = followUpSlotAfter({
+      days: 3,
+      time: "11:00",
+      timeZone: userScheduleTimezone(user),
+    });
     await FollowUp.create({
       owner: user._id,
       application: application._id,
@@ -191,5 +233,37 @@ ${JSON_ONLY}:
   application.status = "FOLLOW_UP_SENT";
   await application.save();
 
-  return { sent: true, subject };
+  // Schedule the SAME follow-up from every other usable account, each at its
+  // own preferred time/timezone (never on a Sunday). The subject/body are
+  // reused verbatim — no extra AI/LLM call is made for these copies.
+  let scheduleSummary = { scheduled: [], skipped: [], errors: [] };
+  if (scheduleOtherAccounts) {
+    try {
+      scheduleSummary = await scheduleForOtherAccounts({
+        user,
+        application,
+        recipient: {
+          contactId: contact?._id || null,
+          recipientEmail,
+          recipientName: contact?.name || application.hrName || "",
+        },
+        draft: { subject, body, generated: true },
+        senderAccountId: sender._id,
+        emailType: "Follow-up",
+        skipDays: [0],
+      });
+    } catch (err) {
+      console.error("[followup] multi-account scheduling failed:", err.message);
+      scheduleSummary.errors.push({ accountEmail: "all", message: err.message });
+    }
+  }
+
+  return {
+    sent: true,
+    subject,
+    senderAccount: sender.address,
+    scheduled: scheduleSummary.scheduled,
+    scheduleSkipped: scheduleSummary.skipped,
+    scheduleErrors: scheduleSummary.errors,
+  };
 };
