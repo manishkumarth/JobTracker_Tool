@@ -63,7 +63,8 @@ export const sanitizeText = (text) =>
     .trim();
 
 // Limited candidate facts for HR replies: only name, email, contact, portfolio,
-// LinkedIn, GitHub. No CTC, notice period, experience, or other salary details.
+// LinkedIn, GitHub. Kept for backward compatibility — new replies use the full
+// facts block plus an explicit "answer these" list built from the HR request.
 export const limitedFactsBlock = (profile) => {
   const parts = [];
   if (profile?.name?.trim()) parts.push(`Name: ${profile.name.trim()}`);
@@ -75,3 +76,71 @@ export const limitedFactsBlock = (profile) => {
   if (profile?.github?.trim()) parts.push(`GitHub: ${profile.github.trim()}`);
   return parts.length ? `CANDIDATE DETAILS (only these may be used — nothing else):\n${parts.join("\n")}` : "CANDIDATE DETAILS: (none provided)";
 };
+
+// ── HR request → requested details ──────────────────────────────────────────
+// Recruiters routinely ask for CTC, expected CTC and notice period. Those facts
+// are real profile data, so they must ALWAYS be answered when asked — but they
+// must not be volunteered in replies that never mention them.
+
+const REQUESTED_DETAILS = [
+  {
+    label: "Current CTC",
+    pattern: /current\s*(ctc|salary|package|compensation)|present\s*(ctc|salary|package)|ctc\s*\(current\)/i,
+    value: (p) => p?.currentCTC,
+  },
+  {
+    label: "Expected CTC",
+    pattern: /expected\s*(ctc|salary|package|compensation)|salary\s*expectation|expectation[s]?\s*(ctc|salary)|desired\s*(ctc|salary)/i,
+    value: (p) => p?.expectedCTC,
+  },
+  {
+    label: "Notice period",
+    pattern: /notice\s*period|joining\s*(time|date|period)|how\s*soon\s*can\s*you\s*join|when\s*can\s*you\s*join|earliest\s*(joining|start)|last\s*working\s*day/i,
+    value: (p) => p?.noticePeriod,
+  },
+  {
+    label: "Total experience",
+    pattern: /(years?\s*of\s*(experience|exp))|total\s*experience|work\s*experience|how\s*many\s*years/i,
+    value: (p) => p?.experience,
+  },
+  {
+    label: "Current company",
+    pattern: /current\s*(company|employer|organisation|organization)|present\s*company|currently\s*(working|employed)/i,
+    value: (p) => p?.currentCompany,
+  },
+  {
+    label: "Current location",
+    pattern: /current\s*(location|city)|where\s*are\s*you\s*(based|located)|relocat/i,
+    value: (p) => p?.location,
+  },
+  {
+    label: "Education",
+    pattern: /qualification|education|degree|graduat/i,
+    value: (p) => p?.education,
+  },
+];
+
+/**
+ * Build an explicit checklist of the details the recruiter actually asked for.
+ * Values come verbatim from the candidate profile; missing ones are declared
+ * missing so the model never invents a number.
+ */
+export function requestedDetailsBlock(profile, requestText = "") {
+  const text = String(requestText || "");
+  const requested = REQUESTED_DETAILS.filter((detail) => detail.pattern.test(text));
+  if (!requested.length) return "";
+
+  const lines = requested.map((detail) => {
+    const value = String(detail.value(profile) || "").trim();
+    return `- ${detail.label}: ${value || "NOT PROVIDED — say you will share it separately, do not invent a value"}`;
+  });
+
+  return `REQUESTED DETAILS (the recruiter explicitly asked for these — answer EVERY line using the value shown):
+${lines.join("\n")}`;
+}
+
+/** Labels the recruiter asked about (used by tests and diagnostics). */
+export function detectRequestedDetails(requestText = "") {
+  const text = String(requestText || "");
+  return REQUESTED_DETAILS.filter((detail) => detail.pattern.test(text)).map((detail) => detail.label);
+}

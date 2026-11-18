@@ -7,7 +7,7 @@ import EmailLog from "../models/EmailLog.js";
 import authMiddleware from "../middleware/auth.js";
 import { requireFeature } from "../middleware/featureGuard.js";
 import { callLLM, parseJson } from "../utils/llmClient.js";
-import { candidateFactsBlock, masterPromptBlock, JSON_ONLY, sanitizeText, limitedFactsBlock } from "../utils/candidatePrompt.js";
+import { candidateFactsBlock, masterPromptBlock, JSON_ONLY, sanitizeText, requestedDetailsBlock } from "../utils/candidatePrompt.js";
 import { generateApplicationEmail } from "../utils/emailWriter.js";
 
 const router = express.Router();
@@ -233,7 +233,7 @@ ${text}`.trim();
 router.post("/generate-detail-reply", async (req, res) => {
   try {
     const profile = await CandidateProfile.findOne({ owner: req.userId });
-    const { requestText, recipientName, recipientEmail, templateId, applicationId, detailsOnly } = req.body;
+    const { requestText, recipientName, recipientEmail, templateId, applicationId } = req.body;
 
     if (!requestText || !requestText.trim()) return res.status(400).json({ message: "requestText is required" });
 
@@ -253,20 +253,27 @@ router.post("/generate-detail-reply", async (req, res) => {
       if (app) applicationBlock = `\nRELATED APPLICATION: ${app.jobTitle || ""} at ${app.companyName || ""}`.trim();
     }
 
-    const factsBlock = detailsOnly ? limitedFactsBlock(profile) : candidateFactsBlock(profile);
+    // `detailsOnly` used to strip CTC / notice period / experience from the
+    // facts, which made the reply skip exactly what HR asked for. The full
+    // facts are still the only source of truth; the checklist below makes sure
+    // asked-for details are actually answered.
+    const factsBlock = candidateFactsBlock(profile);
+    const requestedBlock = requestedDetailsBlock(profile, requestText);
 
     const prompt = `
 You write a polite, professional reply email from a job candidate to a recruiter/HR who has asked follow-up questions. Only use facts from the candidate details below. Never invent anything.
 
 ${factsBlock}
-
+${requestedBlock ? `\n${requestedBlock}\n` : ""}
 ${requestText ? `HR / recruiter request text:\n${requestText}\n` : ""}${applicationBlock}${templateBlock}
 
 STYLE:
 - Open clearly (e.g. "Dear <name>," or "Hello <name>,") — if a recipient name is known use it, otherwise "Dear Hiring Team,"
-- Answer each requested detail using ONLY the candidate details above. Do not include CTC, notice period, salary, experience, or any other personal data not listed above.
+- Answer each requested detail using ONLY the candidate details above.
+- When HR asks for current CTC, expected CTC, notice period, total experience, current company, location or education, state the matching value from CANDIDATE FACTS directly and briefly (for example "My current CTC is 3 LPA and my expected CTC is 4.5 LPA. My notice period is 30 days.").
+- Mention CTC / notice period ONLY when asked — never volunteer them in a reply that does not mention them.
 - Keep it concise, professional and confident. Use proper paragraphs. No brackets around URLs — write each link as a clean URL on its own line in the signature.
-- If a requested detail is not in the candidate details, state that you are happy to share it separately rather than guessing.
+- If a requested detail is not in the candidate details, say you are happy to share it separately rather than guessing.
 ${masterPromptBlock(profile)}
 
 Candidate name: ${profile?.name || "the candidate"}

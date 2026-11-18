@@ -75,7 +75,6 @@ export default function HRReply() {
         recipientName,
         recipientEmail,
         templateId: tid || undefined,
-        detailsOnly: true, // only name, email, contact, portfolio, LinkedIn, GitHub
       });
       setSubject(data.subject || "");
       setBody(data.body || "");
@@ -92,7 +91,6 @@ export default function HRReply() {
           resumeId: resumeId || undefined,
           emailType,
           isAiGenerated: true,
-          detailsOnly: true,
         });
         const sent = result?.results?.filter((r) => r.status === "sent").length || 0;
         toast.success(sent > 0 ? "Reply generated and sent" : "Reply generated but send failed");
@@ -155,6 +153,11 @@ export default function HRReply() {
                 value={requestText}
                 onChange={(e) => setRequestText(e.target.value)}
               />
+              <p className="text-[11px] text-muted mt-2">
+                If the recruiter asks for current CTC, expected CTC, notice period, experience,
+                current company or location, those are answered from your profile. Keep them up to
+                date in <span className="font-medium">Candidate Profile</span>.
+              </p>
               <label className="flex items-center gap-2 mt-2 text-xs text-muted">
                 <input
                   type="checkbox"
