@@ -55,8 +55,13 @@ app.use(async (req, res, next) => {
 });
 
 // Serverless scheduler heartbeat — processes due emails while the API is used.
-app.use("/api", (req, res, next) => {
-  opportunisticSchedulerTick();
+// Awaited on purpose: Vercel kills background work once the response is sent.
+app.use("/api", async (req, res, next) => {
+  try {
+    await opportunisticSchedulerTick();
+  } catch (err) {
+    console.error("[scheduler] heartbeat failed:", err.message);
+  }
   next();
 });
 

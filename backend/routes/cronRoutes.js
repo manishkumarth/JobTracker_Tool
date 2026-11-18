@@ -90,7 +90,19 @@ router.get("/auto-followup", async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
     const result = await runAutoFollowUps();
-    res.json(result);
+
+    // Also flush the scheduled-email queue on the daily cron, so emails still
+    // go out on days when nobody opens the app (the in-app heartbeat is only a
+    // fallback and cannot run while the site is idle).
+    let scheduled = null;
+    try {
+      const flushed = await processDueScheduledEmails({ limit: 10, budgetMs: 20000 });
+      scheduled = { processed: flushed.processed, sent: flushed.sent, failed: flushed.failed };
+    } catch (err) {
+      console.error("[cron] scheduled-email flush failed:", err.message);
+    }
+
+    res.json({ ...result, scheduledEmails: scheduled });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

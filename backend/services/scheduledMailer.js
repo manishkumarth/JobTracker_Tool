@@ -2,6 +2,7 @@ import User from "../models/User.js";
 import Application from "../models/Application.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import EmailLog from "../models/EmailLog.js";
+import ScheduledEmail from "../models/ScheduledEmail.js";
 import { createTransporter } from "../utils/mailer.js";
 import { resolveEmailAccount } from "../utils/emailAccounts.js";
 import { fetchBuffer } from "../utils/fetchBuffer.js";
@@ -78,26 +79,54 @@ export async function sendScheduledEmail(job) {
   const html = injectTrackingIntoHtml(String(job.body || "").replace(/\n/g, "<br/>"), trackingId, true);
   const text = injectTrackingIntoText(String(job.body || ""), trackingId, true);
 
-  const logEntry = await EmailLog.create({
-    owner: user._id,
-    application: job.application || null,
-    company: job.company || application?.company || null,
-    contact: job.contact || null,
-    recipient: job.recipient,
-    recipientName: job.recipientName || "",
-    subject: job.subject,
-    body: job.body,
-    status: "Pending",
-    emailType: job.emailType || "Job Application",
-    isAiGenerated: !!job.isAiGenerated,
-    attachmentName: attachments[0]?.filename || "",
-    resumeName,
-    resumeSize: attachments[0]?.content?.length || 0,
-    senderAccount: account.address,
-    senderAccountId: account._id || null,
-    trackingId,
-    trackingEnabled: true,
-  });
+  // Reuse the log created by a previous interrupted attempt, so a retry never
+  // leaves two conflicting entries for the same send.
+  let logEntry = job.emailLog ? await EmailLog.findById(job.emailLog) : null;
+  if (logEntry && logEntry.status === "Sent") {
+    // The mail was already delivered but the job row was never updated.
+    job.status = "Sent";
+    job.sentAt = logEntry.sentAt || new Date();
+    job.lastError = "";
+    job.processingStartedAt = null;
+    await job.save();
+    await releaseDedupeKey(job);
+    return { sent: true, alreadyDelivered: true, emailLogId: logEntry._id, sentAt: job.sentAt };
+  }
+
+  if (logEntry) {
+    logEntry.status = "Pending";
+    logEntry.errorMessage = "";
+    logEntry.senderAccount = account.address;
+    logEntry.senderAccountId = account._id || null;
+    await logEntry.save();
+  } else {
+    logEntry = await EmailLog.create({
+      owner: user._id,
+      application: job.application || null,
+      company: job.company || application?.company || null,
+      contact: job.contact || null,
+      recipient: job.recipient,
+      recipientName: job.recipientName || "",
+      subject: job.subject,
+      body: job.body,
+      status: "Pending",
+      emailType: job.emailType || "Job Application",
+      isAiGenerated: !!job.isAiGenerated,
+      attachmentName: attachments[0]?.filename || "",
+      resumeName,
+      resumeSize: attachments[0]?.content?.length || 0,
+      senderAccount: account.address,
+      senderAccountId: account._id || null,
+      trackingId,
+      trackingEnabled: true,
+    });
+  }
+
+  // Persist the log reference BEFORE the SMTP call. If this serverless
+  // invocation is killed mid-send, recovery can inspect the log instead of
+  // guessing, and a retry updates this same entry.
+  job.emailLog = logEntry._id;
+  await ScheduledEmail.updateOne({ _id: job._id }, { $set: { emailLog: logEntry._id } });
 
   try {
     const transporter = createTransporter(account.address, account.appPassword);
