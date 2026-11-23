@@ -430,7 +430,7 @@ async function getOrGenerateDraft({
 // Preview step: match resume → generate AI email, WITHOUT sending.
 router.post("/draft", guardSlowSend, requireFeature("aiEmail"), async (req, res) => {
   try {
-    const { applicationId, tone, length, provider, model } = req.body;
+    const { applicationId, tone, length, provider, model, manualResumeId } = req.body;
     if (!applicationId) throw new HttpError(400, "applicationId is required");
 
     const application = await Application.findOne({ _id: applicationId, owner: req.userId });
@@ -438,14 +438,36 @@ router.post("/draft", guardSlowSend, requireFeature("aiEmail"), async (req, res)
 
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const resumes = profile?.resumes || [];
-    const match = matchResumeForJob({
-      resumes,
-      jobTitle: application.jobTitle,
-      profileExperience: profile?.experience || "",
-      jobExperience: getApplicationExperience(application),
-    });
+
+    let match = null;
+    let matchedResume = null;
+    let matchedResumeId = null;
+
+    // If a manual resume ID is provided, use that resume directly
+    if (manualResumeId) {
+      const manualResume = resumes.find((r) => String(r._id) === String(manualResumeId));
+      if (manualResume) {
+        match = { matched: true, resume: manualResume, resumeId: String(manualResume._id), score: 1, matchedTerms: [], experienceMatch: "manual", reason: null, jobTitle: application.jobTitle };
+        matchedResume = manualResume;
+        matchedResumeId = String(manualResume._id);
+      }
+    }
+
+    // Fall back to automatic matching
+    if (!match) {
+      match = matchResumeForJob({
+        resumes,
+        jobTitle: application.jobTitle,
+        profileExperience: profile?.experience || "",
+        jobExperience: getApplicationExperience(application),
+      });
+    }
 
     if (!match.matched) return sendNoResumeMatch(res, { match, resumes, application });
+
+    const publicMatchedResume = match.resume ? publicResume(match.resume) : null;
+    // Get the full resume object for experience extraction
+    const fullResume = matchedResume || resumes.find((r) => String(r._id) === String(match.resumeId));
 
     const recipient = await resolveApplicationRecipient({ userId: req.userId, application });
     const user = await User.findById(req.userId);
@@ -473,6 +495,7 @@ router.post("/draft", guardSlowSend, requireFeature("aiEmail"), async (req, res)
       hasRecipient: !!(recipient.contactId || recipient.recipientEmail),
       emailAlreadySent: !!alreadySent,
       alreadySentAt: alreadySent?.sentAt || null,
+      manual: !!manualResumeId,
     });
   } catch (err) {
     sendError(res, err);
@@ -487,7 +510,7 @@ router.post("/auto-send", guardSlowSend, requireFeature("sendEmail"), requireFea
     const {
       applicationId, tone, length, allowResend = false, provider, model,
       mode = "send", accountId = null, scheduledAt, timezone = DEFAULT_TIMEZONE,
-      subject, body, scheduleOtherAccounts = false,
+      subject, body, scheduleOtherAccounts = false, manualResumeId,
     } = req.body;
     if (!applicationId) throw new HttpError(400, "applicationId is required");
     if (!["send", "schedule"].includes(mode)) throw new HttpError(400, "mode must be 'send' or 'schedule'");
@@ -521,12 +544,34 @@ router.post("/auto-send", guardSlowSend, requireFeature("sendEmail"), requireFea
 
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const resumes = profile?.resumes || [];
-    const match = matchResumeForJob({
-      resumes,
-      jobTitle: application.jobTitle,
-      profileExperience: profile?.experience || "",
-      jobExperience: getApplicationExperience(application),
-    });
+
+    let match = null;
+    // If a manual resume ID is provided, use that resume directly (skip auto-matching)
+    if (manualResumeId) {
+      const manualResume = resumes.find((r) => String(r._id) === String(manualResumeId));
+      if (manualResume) {
+        match = {
+          matched: true,
+          resume: manualResume,
+          resumeId: String(manualResume._id),
+          score: 1,
+          matchedTerms: [],
+          experienceMatch: "manual",
+          reason: null,
+          jobTitle: application.jobTitle,
+        };
+      }
+    }
+
+    // Fall back to automatic matching
+    if (!match) {
+      match = matchResumeForJob({
+        resumes,
+        jobTitle: application.jobTitle,
+        profileExperience: profile?.experience || "",
+        jobExperience: getApplicationExperience(application),
+      });
+    }
 
     if (!match.matched) return sendNoResumeMatch(res, { match, resumes, application });
 
@@ -631,7 +676,7 @@ router.post("/auto-send-multi", guardSlowSend, requireFeature("sendEmail"), requ
   try {
     const {
       applicationId, tone, length, allowResend = false, provider, model,
-      subject, body,
+      subject, body, manualResumeId,
     } = req.body;
     if (!applicationId) throw new HttpError(400, "applicationId is required");
 
@@ -675,12 +720,32 @@ router.post("/auto-send-multi", guardSlowSend, requireFeature("sendEmail"), requ
 
     const profile = await CandidateProfile.findOne({ owner: req.userId });
     const resumes = profile?.resumes || [];
-    const match = matchResumeForJob({
-      resumes,
-      jobTitle: application.jobTitle,
-      profileExperience: profile?.experience || "",
-      jobExperience: getApplicationExperience(application),
-    });
+
+    let match = null;
+    if (manualResumeId) {
+      const manualResume = resumes.find((r) => String(r._id) === String(manualResumeId));
+      if (manualResume) {
+        match = {
+          matched: true,
+          resume: manualResume,
+          resumeId: String(manualResume._id),
+          score: 1,
+          matchedTerms: [],
+          experienceMatch: "manual",
+          reason: null,
+          jobTitle: application.jobTitle,
+        };
+      }
+    }
+
+    if (!match) {
+      match = matchResumeForJob({
+        resumes,
+        jobTitle: application.jobTitle,
+        profileExperience: profile?.experience || "",
+        jobExperience: getApplicationExperience(application),
+      });
+    }
 
     if (!match.matched) return sendNoResumeMatch(res, { match, resumes, application });
 

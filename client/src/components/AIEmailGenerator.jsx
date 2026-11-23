@@ -48,6 +48,8 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
   );
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [showResumePicker, setShowResumePicker] = useState(false);
+  const [manualResumeId, setManualResumeId] = useState("");
   const appliedAccountRef = useRef(null);
 
   const loadMatch = useCallback(async () => {
@@ -156,15 +158,17 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
 
   const generate = async () => {
     if (generating) return;
-    if (match && !match.matched) {
-      toast.error(noMatchMessage(match));
+    if (match && !match.matched && !manualResumeId) {
+      setShowResumePicker(true);
       return;
     }
     setGenerating(true);
     setError(null);
     setResult(null);
     try {
-      const data = await draftApplicationEmail(application._id);
+      const data = await draftApplicationEmail(application._id, {
+        ...(manualResumeId ? { manualResumeId } : {}),
+      });
       setDraft({
         subject: data.draft?.subject || "",
         body: data.draft?.body || "",
@@ -225,6 +229,7 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
         accountId: accountId || undefined,
         mode: "send",
         scheduleOtherAccounts: enabledAccounts.length > 1,
+        ...(manualResumeId ? { manualResumeId } : {}),
       });
       const sent = (data.results || []).find((r) => r.status === "sent");
       if (sent) {
@@ -310,6 +315,7 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       const data = await autoSendApplicationEmail(application._id, {
         accountId: accountId || undefined,
         scheduleOtherAccounts: enabledAccounts.length > 1,
+        ...(manualResumeId ? { manualResumeId } : {}),
       });
       const sent = (data.results || []).find((r) => r.status === "sent");
       if (sent) {
@@ -356,7 +362,9 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
     setError(null);
     setResult(null);
     try {
-      const data = await autoSendMultiAccount(application._id);
+      const data = await autoSendMultiAccount(application._id, {
+        ...(manualResumeId ? { manualResumeId } : {}),
+      });
       if (data.sentNow) {
         let msg = `Email sent from ${data.defaultAccount}`;
         if (data.scheduled?.length) {
@@ -723,6 +731,63 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
           <Link to="/scheduled" className="inline-block text-xs font-semibold text-emerald-900 dark:text-emerald-300 underline underline-offset-2">
             Open Scheduled Emails →
           </Link>
+        </div>
+      )}
+      {showResumePicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-bold text-primary mb-4">Select a Resume</h3>
+            <p className="text-sm text-muted mb-4">
+              No resume automatically matched this job title. Choose a resume to use for this email.
+            </p>
+            <div className="space-y-2 mb-4">
+              {(match?.resumes || []).map((r) => (
+                <label key={r._id} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${
+                  manualResumeId === r._id
+                    ? "border-brand-500 bg-brand-50 dark:bg-brand-950/30"
+                    : "border-color hover:border-brand-300"
+                }`}>
+                  <input
+                    type="radio"
+                    name="manualResume"
+                    value={r._id}
+                    checked={manualResumeId === r._id}
+                    onChange={() => setManualResumeId(r._id)}
+                    className="accent-brand-600"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-primary truncate">{r.originalName}</p>
+                    {r.notes && (
+                      <p className="text-xs text-muted truncate">Notes: {r.notes}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowResumePicker(false)}
+                className="btn btn-secondary btn-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (manualResumeId) {
+                    setShowResumePicker(false);
+                    generate();
+                  } else {
+                    toast.error("Please select a resume");
+                  }
+                }}
+                className="btn btn-primary btn-sm"
+              >
+                Use this resume
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
