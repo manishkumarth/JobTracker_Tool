@@ -12,6 +12,7 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
   const [editing, setEditing] = useState(false);
   const [experienceMin, setExperienceMin] = useState(resume.experienceMin || "");
   const [experienceMax, setExperienceMax] = useState(resume.experienceMax || "");
+  const [experienceFixed, setExperienceFixed] = useState(resume.experienceFixed || "");
 
   const saveNotes = async () => {
     setEditing(false);
@@ -74,9 +75,9 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
       </div>
 
       {/* Experience range — used for automatic resume selection */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <div>
-          <label className="text-[10px] text-muted block mb-0.5">Min experience (yrs)</label>
+          <label className="text-[10px] text-muted block mb-0.5">Min exp (yrs)</label>
           <input
             type="number"
             step="0.5"
@@ -92,7 +93,7 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
           />
         </div>
         <div>
-          <label className="text-[10px] text-muted block mb-0.5">Max experience (yrs)</label>
+          <label className="text-[10px] text-muted block mb-0.5">Max exp (yrs)</label>
           <input
             type="number"
             step="0.5"
@@ -107,7 +108,26 @@ function ResumeItem({ resume, parsingId, onParse, onSetDefault, onDelete, onSave
             }}
           />
         </div>
+        <div>
+          <label className="text-[10px] text-muted block mb-0.5">Fixed exp (yrs)</label>
+          <input
+            type="number"
+            step="0.5"
+            placeholder="e.g. 3"
+            className="input text-xs py-1 w-full"
+            value={experienceFixed}
+            onChange={(e) => setExperienceFixed(e.target.value)}
+            onBlur={() => {
+              if (onSaveExperience && experienceFixed !== (resume.experienceFixed || "")) {
+                onSaveExperience(resume._id, { experienceFixed: experienceFixed ? parseFloat(experienceFixed) : null });
+              }
+            }}
+          />
+        </div>
       </div>
+      <p className="text-[10px] text-muted">
+        Fixed experience overrides the range when set — used in AI drafts for the selected resume.
+      </p>
 
       {/* Role notes — used for automatic resume selection */}
       <div className="flex items-center gap-2">
@@ -295,7 +315,7 @@ masterPrompt: result.profile.masterPrompt || form.masterPrompt || "",
 
   const handleSaveResumeExperience = async (resumeId, experienceData) => {
     const { resume } = await updateResume(resumeId, experienceData);
-    setResumes((prev) => prev.map((r) => (r._id === resumeId ? { ...r, experienceMin: resume.experienceMin, experienceMax: resume.experienceMax } : r)));
+    setResumes((prev) => prev.map((r) => (r._id === resumeId ? { ...r, experienceMin: resume.experienceMin, experienceMax: resume.experienceMax, experienceFixed: resume.experienceFixed } : r)));
     toast.success("Experience range saved");
   };
 

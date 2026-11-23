@@ -35,7 +35,7 @@ const ALIASES = [
 const STOPWORDS = new Set([
   "a", "an", "and", "at", "for", "in", "of", "on", "or", "the", "to", "with",
   "developer", "developers", "development", "engineer", "engineers", "engineering",
-  "programmer", "programmers", "software", "architect", "consultant", "specialist",
+  "programmer", "programmers",
   "senior", "junior", "sr", "jr", "lead", "principal", "staff", "associate",
   "trainee", "intern", "internship", "entry", "mid", "level", "experienced",
   "job", "role", "position", "opening", "opportunity", "hiring", "urgent",
@@ -111,14 +111,34 @@ export function parseExperienceRange(value) {
 }
 
 // The experience range configured on a resume document (min/max fields).
+// If experienceFixed is set, it takes precedence as the single authoritative value.
 function resumeExperienceRange(resume) {
+  // Fixed experience overrides the range
+  const fixed = resume?.experienceFixed != null && resume.experienceFixed !== ""
+    ? Number(resume.experienceFixed)
+    : null;
+  if (Number.isFinite(fixed)) {
+    return { min: fixed, max: fixed, mid: fixed, fixed: true };
+  }
+
   const min = resume?.experienceMin != null && resume.experienceMin !== "" ? Number(resume.experienceMin) : null;
   const max = resume?.experienceMax != null && resume.experienceMax !== "" ? Number(resume.experienceMax) : null;
   if (!Number.isFinite(min) && !Number.isFinite(max)) return null;
 
   const lo = Number.isFinite(min) ? min : max;
   const hi = Number.isFinite(max) ? max : lo;
-  return { min: Math.min(lo, hi), max: Math.max(lo, hi), mid: (lo + hi) / 2 };
+  return { min: Math.min(lo, hi), max: Math.max(lo, hi), mid: (lo + hi) / 2, fixed: false };
+}
+
+/**
+ * Get the effective experience value for a resume (in years).
+ * Returns the fixed value if set, otherwise the midpoint of the range.
+ * Returns null if neither is configured.
+ */
+export function getResumeEffectiveExperience(resume) {
+  const range = resumeExperienceRange(resume);
+  if (!range) return null;
+  return range.mid;
 }
 
 /**
@@ -209,14 +229,14 @@ export function normalizeText(value) {
     .trim();
 }
 
-function tokenize(value) {
+export function tokenize(value) {
   return normalizeText(value)
     .split(" ")
     .map((t) => t.trim())
     .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
-function notePhrases(notes) {
+export function notePhrases(notes) {
   return String(notes || "")
     .split(/[,;|\n\r/]+/)
     .map((p) => p.trim())
@@ -243,9 +263,11 @@ export function scoreResume(resume, jobTitle, jobExperience = null) {
 
   // Reward a full role phrase match, e.g. notes "Full Stack Developer" vs
   // job title "Senior Full Stack Developer" beats a single shared keyword.
+  // Use normalized text (with aliases applied) but KEEP stopwords for phrase matching.
+  const normalizedJobTitle = normalizeText(jobTitle);
   for (const phrase of notePhrases(resume.notes)) {
-    const phraseTokens = tokenize(phrase);
-    if (phraseTokens.length >= 2 && phraseTokens.every((t) => jobTokens.has(t))) {
+    const normalizedPhrase = normalizeText(phrase);
+    if (normalizedPhrase.length >= 3 && normalizedJobTitle.includes(normalizedPhrase)) {
       score += 2;
     }
   }
@@ -267,7 +289,11 @@ export function scoreResume(resume, jobTitle, jobExperience = null) {
       experienceMatch = "match";
       experienceDistance = 0;
     } else {
-      score -= 1; // mild penalty when the ranges do not overlap
+      // Only penalize experience mismatch if there are no token matches at all.
+      // If the resume matches on role keywords, don't kill the match over experience.
+      if (matchedTerms.length === 0) {
+        score -= 1; // mild penalty when the ranges do not overlap
+      }
       experienceMatch = "mismatch";
       // Gap in years, used as a tiebreaker so the closest resume wins
       // (e.g. a 3–5 year job prefers a 2–2.5 resume over a 1–2 one).
@@ -293,6 +319,7 @@ function publicResume(resume) {
     size: resume.size,
     experienceMin: resume.experienceMin ?? null,
     experienceMax: resume.experienceMax ?? null,
+    experienceFixed: resume.experienceFixed ?? null,
   };
 }
 

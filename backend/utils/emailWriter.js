@@ -15,13 +15,16 @@ export async function generateApplicationEmail({
   provider,
   model,
   timeoutMs,
+  resumeExperience = null,
 }) {
   if (!application?.jobTitle) throw new Error("jobTitle is required");
+
+  const factsBlock = candidateFactsBlock(profile, resumeExperience);
 
   const prompt = `
 You are an assistant that writes truthful, personalized job application emails.
 
-${candidateFactsBlock(profile)}
+${factsBlock}
 
 JOB DETAILS:
 Job title: ${application.jobTitle}
@@ -36,7 +39,7 @@ Length: ${length || "short"} (short = under 150 words, medium = 150-250 words)
 
 Write a job application email. Only mention candidate skills/experience that genuinely overlap with what the job needs, drawn strictly from the candidate facts above.
 
-GREETING RULE: If a recruiter name is provided, start with "Dear <name>,". If no recruiter name is provided, start with "Dear Hiring Team," or "Dear Hiring Manager,". Never leave the greeting blank or use placeholders.
+GREETING RULE: If a recruiter name is provided, start with "Dear <name>,". If no recruiter name is provided, start with "Dear Hiring Team," or "Dear Hiring Manager,". Never leave the blank or use placeholders.
 ${masterPromptBlock(profile)}
 ${JSON_ONLY}, in exactly this shape:
 {"subject": "...", "body": "..."}`.trim();
@@ -60,7 +63,7 @@ ${JSON_ONLY}, in exactly this shape:
  * safe to send without an LLM round-trip. This is what keeps one-click send
  * inside the serverless time budget.
  */
-export function buildFallbackApplicationEmail({ profile, application }) {
+export function buildFallbackApplicationEmail({ profile, application, resumeExperience = null }) {
   const name = profile?.name?.trim() || "";
   const role = application?.jobTitle || "the advertised role";
   const company = application?.companyName?.trim() || "";
@@ -73,7 +76,10 @@ export function buildFallbackApplicationEmail({ profile, application }) {
 
   const highlights = [];
   if (profile?.professionalTitle?.trim()) highlights.push(`my background as a ${profile.professionalTitle.trim()}`);
-  if (profile?.experience?.trim()) highlights.push(`${profile.experience.trim()} of experience`);
+  const experienceText = resumeExperience != null
+    ? `${resumeExperience} years`
+    : (profile?.experience?.trim() || "");
+  if (experienceText) highlights.push(`${experienceText} of experience`);
   const skills = (profile?.skills || []).filter(Boolean).slice(0, 5);
   if (skills.length) highlights.push(`hands-on work with ${skills.join(", ")}`);
 

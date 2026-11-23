@@ -27,11 +27,16 @@ export const buildContactLine = (profile) => {
   return parts.length ? parts.join(" , ") : "(not provided)";
 };
 
-export const candidateFactsBlock = (profile) => `
+export const candidateFactsBlock = (profile, resumeExperience = null) => {
+  const experience = resumeExperience != null
+    ? `${resumeExperience} years`
+    : (profile?.experience || "(not provided)");
+  
+  return `
 CANDIDATE FACTS (the ONLY truth you may use about the candidate — never invent anything beyond this):
 Name: ${profile?.name || "(not provided)"}
 Title: ${profile?.professionalTitle || "(not provided)"}
-Experience: ${profile?.experience || "(not provided)"}
+Experience: ${experience}
 Current company: ${profile?.currentCompany || "(not provided)"}
 Current CTC: ${profile?.currentCTC || "(not provided)"}
 Expected CTC: ${profile?.expectedCTC || "(not provided)"}
@@ -52,6 +57,7 @@ STRICT RULES:
 - If the job wants something the candidate doesn't have, simply don't mention it — do not apologize for the gap either.
 - Do not invent job titles, achievements, or responsibilities.
 `.trim();
+};
 
 // Some models emit stray square brackets / empty lists — strip them from output.
 export const sanitizeText = (text) =>

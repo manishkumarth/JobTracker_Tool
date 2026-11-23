@@ -16,7 +16,7 @@ import { logActivity } from "../utils/activity.js";
 import { logUserEvent } from "../utils/userLog.js";
 import { generateTrackingId, injectTrackingIntoHtml, injectTrackingIntoText } from "../utils/tracking.js";
 import { generateApplicationEmail, buildFallbackApplicationEmail } from "../utils/emailWriter.js";
-import { matchResumeForJob, validateResumeForJob, describeResumeMatches, getApplicationExperience } from "../utils/resumeMatcher.js";
+import { matchResumeForJob, validateResumeForJob, describeResumeMatches, getApplicationExperience, getResumeEffectiveExperience } from "../utils/resumeMatcher.js";
 import { followUpSlotAfter, userScheduleTimezone } from "../utils/scheduling.js";
 
 const router = express.Router();
@@ -384,10 +384,13 @@ async function resolveApplicationRecipient({ userId, application }) {
 async function getOrGenerateDraft({
   req, application, profile, tone, length, provider, model, subject, body, user,
   draftTimeoutMs, allowTemplateFallback = false,
+  matchedResume = null,
 }) {
   if (String(subject || "").trim() && String(body || "").trim()) {
     return { subject: String(subject).trim(), body: String(body), generated: false, fallback: false };
   }
+
+  const resumeExperience = matchedResume ? getResumeEffectiveExperience(matchedResume) : null;
 
   try {
     const generated = await generateApplicationEmail({
@@ -399,6 +402,7 @@ async function getOrGenerateDraft({
       provider,
       model,
       timeoutMs: draftTimeoutMs,
+      resumeExperience,
     });
     return {
       subject: String(subject || "").trim() || generated.subject,
@@ -412,7 +416,7 @@ async function getOrGenerateDraft({
     // the request hanging until Vercel kills it.
     if (!allowTemplateFallback) throw err;
     console.error("[mail] AI draft unavailable, using template:", err.message);
-    const template = buildFallbackApplicationEmail({ profile, application });
+    const template = buildFallbackApplicationEmail({ profile, application, resumeExperience });
     return {
       subject: String(subject || "").trim() || template.subject,
       body: String(body || "").trim() || template.body,
@@ -447,6 +451,7 @@ router.post("/draft", guardSlowSend, requireFeature("aiEmail"), async (req, res)
     const user = await User.findById(req.userId);
     const draft = await getOrGenerateDraft({
       req, application, profile, tone, length, provider, model, user,
+      matchedResume: match.resume,
     });
 
     const alreadySent = await EmailLog.findOne({
@@ -530,6 +535,7 @@ router.post("/auto-send", guardSlowSend, requireFeature("sendEmail"), requireFea
       req, application, profile, tone, length, provider, model, subject, body, user,
       draftTimeoutMs: QUICK_DRAFT_TIMEOUT_MS,
       allowTemplateFallback: true,
+      matchedResume: match.resume,
     });
 
     if (mode === "schedule") {
@@ -683,6 +689,7 @@ router.post("/auto-send-multi", guardSlowSend, requireFeature("sendEmail"), requ
       req, application, profile, tone, length, provider, model, subject, body, user,
       draftTimeoutMs: QUICK_DRAFT_TIMEOUT_MS,
       allowTemplateFallback: true,
+      matchedResume: match.resume,
     });
 
     // Send immediately from default account

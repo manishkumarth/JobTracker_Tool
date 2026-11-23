@@ -70,6 +70,7 @@ router.patch("/:resumeId", async (req, res) => {
     if (req.body.notes !== undefined) resume.notes = req.body.notes;
     if (req.body.experienceMin !== undefined) resume.experienceMin = req.body.experienceMin === null ? null : Number(req.body.experienceMin);
     if (req.body.experienceMax !== undefined) resume.experienceMax = req.body.experienceMax === null ? null : Number(req.body.experienceMax);
+    if (req.body.experienceFixed !== undefined) resume.experienceFixed = req.body.experienceFixed === null ? null : Number(req.body.experienceFixed);
     await profile.save();
 
     res.json({ resume });

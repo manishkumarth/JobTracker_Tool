@@ -11,6 +11,7 @@ const resumeSchema = new mongoose.Schema(
     notes: { type: String, default: "" },
     experienceMin: { type: Number, default: null },
     experienceMax: { type: Number, default: null },
+    experienceFixed: { type: Number, default: null },
     uploadedAt: { type: Date, default: Date.now },
   },
   { _id: true }
