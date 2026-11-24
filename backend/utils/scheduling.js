@@ -119,13 +119,21 @@ export function nextWeekdaySlot({
   timeZone = DEFAULT_SCHEDULE_TIMEZONE,
   now = new Date(),
   skipDays = [0, 6],
+  cascadeSlots = false,
 } = {}) {
   const slot = isValidTimeSlot(time) ? time : QUICK_SCHEDULE_SLOTS[0];
   const zone = isValidTimezone(timeZone) ? timeZone : DEFAULT_SCHEDULE_TIMEZONE;
-  const [hour, minute] = slot.split(":").map(Number);
   const today = zonedParts(now, zone);
   const cutoff = now.getTime() + 60 * 1000; // small grace for clock skew
   const blocked = new Set(Array.isArray(skipDays) ? skipDays : []);
+
+  // Build the list of candidate slot times to try. When cascading, start with
+  // the preferred slot and include every later quick slot (11 → 12 → 16) so a
+  // missed 11:00 can still land at 12:00 or 16:00 today instead of tomorrow.
+  const preferredIndex = QUICK_SCHEDULE_SLOTS.indexOf(slot);
+  const candidateTimes = cascadeSlots
+    ? (preferredIndex >= 0 ? QUICK_SCHEDULE_SLOTS.slice(preferredIndex) : QUICK_SCHEDULE_SLOTS)
+    : [slot];
 
   for (let offset = 0; offset < 14; offset += 1) {
     // Walk calendar days in UTC arithmetic, then convert the wall clock back.
@@ -133,28 +141,34 @@ export function nextWeekdaySlot({
     const weekday = dayCursor.getUTCDay();
     if (blocked.has(weekday)) continue;
 
-    const candidate = zonedTimeToUtc(
-      {
-        year: dayCursor.getUTCFullYear(),
-        month: dayCursor.getUTCMonth() + 1,
-        day: dayCursor.getUTCDate(),
-        hour,
-        minute,
-      },
-      zone
-    );
-    if (candidate.getTime() > cutoff) return candidate;
+    for (const tryTime of candidateTimes) {
+      if (!isValidTimeSlot(tryTime)) continue;
+      const [hour, minute] = tryTime.split(":").map(Number);
+
+      const candidate = zonedTimeToUtc(
+        {
+          year: dayCursor.getUTCFullYear(),
+          month: dayCursor.getUTCMonth() + 1,
+          day: dayCursor.getUTCDate(),
+          hour,
+          minute,
+        },
+        zone
+      );
+      if (candidate.getTime() > cutoff) return candidate;
+    }
   }
 
   // Fallback: a week from now at the same slot (keeps the caller alive).
   const fallbackDay = new Date(Date.UTC(today.year, today.month - 1, today.day + 7));
+  const [fh, fm] = slot.split(":").map(Number);
   return zonedTimeToUtc(
     {
       year: fallbackDay.getUTCFullYear(),
       month: fallbackDay.getUTCMonth() + 1,
       day: fallbackDay.getUTCDate(),
-      hour,
-      minute,
+      hour: fh,
+      minute: fm,
     },
     zone
   );

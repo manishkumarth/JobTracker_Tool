@@ -37,6 +37,7 @@ export async function scheduleForOtherAccounts({
       timeZone: prefs.scheduleTimezone,
       skipDays: blockedDays,
       now,
+      cascadeSlots: true,
     });
 
     try {
