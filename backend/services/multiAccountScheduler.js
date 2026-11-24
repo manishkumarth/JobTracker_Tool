@@ -31,6 +31,7 @@ export async function scheduleForOtherAccounts({
   const scheduled = [];
   const errors = [];
 
+  console.log(`[schedule] ${emailType}: ${schedule.length} eligible, ${skipped.length} skipped by planScheduledAccounts`);
   for (const { account: acc, prefs } of schedule) {
     const scheduledAt = nextWeekdaySlot({
       time: prefs.scheduleTime,

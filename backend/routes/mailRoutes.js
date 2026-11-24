@@ -799,7 +799,7 @@ router.post("/auto-send-multi", guardSlowSend, requireFeature("sendEmail"), requ
       scheduleErrors: scheduleResult.errors,
     };
 
-    logSlowSend(res, "auto-send-multi", `scheduled=${scheduleResult.scheduled.length} fallback=${!!draft.fallback}`);
+    logSlowSend(res, "auto-send-multi", `scheduled=${scheduleResult.scheduled.length} skipped=${scheduleResult.skipped.length} errors=${scheduleResult.errors.length} fallback=${!!draft.fallback}`);
     res.json({
       sentNow,
       aiFallback: !!draft.fallback,
