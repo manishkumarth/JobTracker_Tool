@@ -398,3 +398,5 @@ Answer in plain text (no JSON). Keep it short and helpful.
     res.json({ summary: null, answer: "Sorry, I couldn't process that. Please try again." });
   }
 });
+
+export default router;
