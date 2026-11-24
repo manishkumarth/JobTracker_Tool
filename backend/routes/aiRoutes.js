@@ -1,4 +1,4 @@
-import express from "express";
+import mongoose from "mongoose";
 import User from "../models/User.js";
 import CandidateProfile from "../models/CandidateProfile.js";
 import Application from "../models/Application.js";
@@ -332,7 +332,7 @@ router.post("/dashboard-chat", async (req, res) => {
 
     // Application status breakdown
     const statusBreakdown = await Application.aggregate([
-      { $match: { owner: new (require("mongoose")).Types.ObjectId(owner) } },
+      { $match: { owner: new mongoose.Types.ObjectId(owner) } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]);
 
