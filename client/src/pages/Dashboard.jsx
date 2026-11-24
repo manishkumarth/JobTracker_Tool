@@ -98,6 +98,12 @@ export default function Dashboard() {
     ),
   };
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "—";
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
   const handleChat = async (e) => {
     e?.preventDefault?.();
     if (!chatQuestion.trim()) return;
