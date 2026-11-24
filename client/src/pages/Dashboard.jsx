@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { getDashboardStats } from "../api/dashboard.js";
+import { dashboardChat } from "../api/ai.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import GmailConnect from "../components/GmailConnect.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -10,6 +11,10 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatQuestion, setChatQuestion] = useState("");
+  const [chatAnswer, setChatAnswer] = useState(null);
+  const [chatLoading, setChatLoading] = useState(false);
 
   useEffect(() => {
     getDashboardStats()
@@ -93,20 +98,45 @@ export default function Dashboard() {
     ),
   };
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "—";
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const handleChat = async (e) => {
+    e?.preventDefault?.();
+    if (!chatQuestion.trim()) return;
+    setChatLoading(true);
+    setChatAnswer(null);
+    try {
+      const data = await dashboardChat(chatQuestion);
+      setChatAnswer(data.answer || data.summary || "No response received.");
+    } catch (err) {
+      setChatAnswer("Sorry, I couldn't process that. Please try again.");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const closeChat = () => {
+    setChatOpen(false);
+    setChatQuestion("");
+    setChatAnswer(null);
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <>
+      <div className="space-y-6 animate-fade-in">
       {/* Welcome Header */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Welcome back, {displayName}</h1>
           <p className="page-subtitle">{today}</p>
         </div>
+        <button
+          onClick={() => setChatOpen(true)}
+          className="btn btn-primary btn-sm flex items-center gap-1.5"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
+          Ask AI
+        </button>
       </div>
 
       {/* Stats Grid */}
@@ -284,5 +314,56 @@ export default function Dashboard() {
         </div>
       </div>
     </div>
-  );
+
+    {chatOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 max-w-lg w-full shadow-xl max-h-[80vh] flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-primary flex items-center gap-2">
+              <svg className="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+              Ask AI
+            </h3>
+            <button onClick={closeChat} className="btn-icon" aria-label="Close">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+            {chatAnswer && (
+              <div className="rounded-xl bg-gray-50 dark:bg-gray-800 p-4 text-sm text-secondary whitespace-pre-wrap">
+                {chatAnswer}
+              </div>
+            )}
+            {chatLoading && (
+              <div className="rounded-xl bg-gray-50 dark:bg-gray-800 p-4 text-sm text-muted">
+                Thinking...
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleChat} className="flex gap-2">
+            <input
+              type="text"
+              className="input flex-1"
+              placeholder="Ask about your applications, follow-ups, stats..."
+              value={chatQuestion}
+              onChange={(e) => setChatQuestion(e.target.value)}
+              disabled={chatLoading}
+            />
+            <button
+              type="submit"
+              disabled={chatLoading || !chatQuestion.trim()}
+              className="btn btn-primary btn-sm"
+            >
+              {chatLoading ? "..." : "Send"}
+            </button>
+          </form>
+        </div>
+      </div>
+    )}
+  </>);
 }

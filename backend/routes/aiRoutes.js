@@ -292,4 +292,109 @@ ${JSON_ONLY}, in exactly this shape:
   }
 });
 
-export default router;
+// POST /api/ai/dashboard-chat
+// Ask AI about your job search data — summaries, counts, and natural-language questions.
+router.post("/dashboard-chat", async (req, res) => {
+  try {
+    const profile = await CandidateProfile.findOne({ owner: req.userId });
+    const { question } = req.body;
+
+    const owner = req.userId;
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+    const [
+      totalApplications, totalCompanies, totalContacts,
+      emailsSent, emailsFailed, emailsPending,
+      interviewsScheduled, offers, rejected,
+      recentApplications, upcomingInterviews,
+      followUpsDueToday, overdueFollowUps, upcomingFollowUps,
+      recentEmails,
+    ] = await Promise.all([
+      Application.countDocuments({ owner }),
+      Company.countDocuments({ owner }),
+      Contact.countDocuments({ owner }),
+      EmailLog.countDocuments({ owner, status: "Sent" }),
+      EmailLog.countDocuments({ owner, status: "Failed" }),
+      EmailLog.countDocuments({ owner, status: "Pending" }),
+      Application.countDocuments({ owner, status: "INTERVIEW_SCHEDULED" }),
+      Application.countDocuments({ owner, status: { $in: ["OFFER", "SELECTED"] } }),
+      Application.countDocuments({ owner, status: "REJECTED" }),
+      Application.find({ owner }).populate("company", "name").sort({ createdAt: -1 }).limit(10),
+      Interview.find({ owner, date: { $gte: now }, result: { $in: ["Scheduled", "Rescheduled"] } })
+        .populate({ path: "application", select: "jobTitle" }).sort({ date: 1 }).limit(5),
+      FollowUp.countDocuments({ owner, status: "Pending", date: { $gte: startOfToday, $lte: endOfToday } }),
+      FollowUp.countDocuments({ owner, status: "Pending", date: { $lt: startOfToday } }),
+      FollowUp.countDocuments({ owner, status: "Pending", date: { $gt: endOfToday } }),
+      EmailLog.find({ owner }).sort({ createdAt: -1 }).limit(5),
+    ]);
+
+    // Application status breakdown
+    const statusBreakdown = await Application.aggregate([
+      { $match: { owner: new (require("mongoose")).Types.ObjectId(owner) } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]);
+
+    const statusMap = Object.fromEntries(statusBreakdown.map((s) => [s._id, s.count]));
+
+    // Build context summary
+    const context = `
+JOB SEARCH DASHBOARD — SUMMARY FOR ${profile?.name || "the candidate"}
+
+STATS:
+- Total applications: ${totalApplications}
+- Emails sent: ${emailsSent}
+- Emails failed: ${emailsFailed}
+- Emails pending: ${emailsPending}
+- Interviews scheduled: ${interviewsScheduled}
+- Offers: ${offers}
+- Rejected: ${rejected}
+- Total companies: ${totalCompanies}
+- Total contacts: ${totalContacts}
+
+STATUS BREAKDOWN:
+${Object.entries(statusMap).map(([k, v]) => `  ${k}: ${v}`).join("\n") || "  (none)"}
+
+FOLLOW-UPS:
+- Due today: ${followUpsDueToday}
+- Overdue: ${overdueFollowUps}
+- Upcoming: ${upcomingFollowUps}
+
+RECENT APPLICATIONS (latest 10):
+${recentApplications.map((a, i) => `  ${i + 1}. ${a.jobTitle || "Unknown"} at ${a.companyName || a.company?.name || "Unknown"} — status: ${a.status}, applied: ${new Date(a.createdAt).toLocaleDateString()}`).join("\n") || "  (none)"}
+
+UPCOMING INTERVIEWS:
+${upcomingInterviews.map((iv, i) => `  ${i + 1}. ${iv.application?.jobTitle || "Unknown"} on ${new Date(iv.date).toLocaleDateString()}`).join("\n") || "  (none)"}
+
+RECENT EMAILS (latest 5):
+${recentEmails.map((e, i) => `  ${i + 1}. [${e.status}] ${e.subject} → ${e.recipient} (${new Date(e.createdAt).toLocaleDateString()})`).join("\n") || "  (none)"}
+`.trim();
+
+    const userProviders = await getUserProviders(req.userId);
+
+    // If no question, return just the summary
+    if (!question || !question.trim()) {
+      return res.json({ summary: context, answer: null });
+    }
+
+    // Ask the AI
+    const prompt = `
+You are a helpful job-search assistant. The user has asked a question about their job search.
+Answer concisely and accurately using ONLY the data below. If the answer isn't in the data, say so.
+
+DASHBOARD DATA:
+${context}
+
+USER QUESTION: ${question}
+
+Answer in plain text (no JSON). Keep it short and helpful.
+`.trim();
+
+    const answer = await callLLM({ userProviders, prompt, timeoutMs: 15000 });
+    res.json({ summary: context, answer: answer.trim() });
+  } catch (err) {
+    console.error("Dashboard chat error:", err.message);
+    res.json({ summary: null, answer: "Sorry, I couldn't process that. Please try again." });
+  }
+});

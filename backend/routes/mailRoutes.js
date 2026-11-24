@@ -516,11 +516,6 @@ router.post("/auto-send", guardSlowSend, requireFeature("sendEmail"), requireFea
     if (!["send", "schedule"].includes(mode)) throw new HttpError(400, "mode must be 'send' or 'schedule'");
 
     const application = await Application.findOne({ _id: applicationId, owner: req.userId });
-    if (!application) throw new HttpError(404, "Application not found");
-
-    const user = await User.findById(req.userId);
-    if (!user) throw new HttpError(404, "User not found");
-    const sender = await resolveEmailAccount(user, accountId);
 
     if (!allowResend) {
       const alreadySent = await EmailLog.findOne({

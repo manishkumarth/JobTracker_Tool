@@ -6,3 +6,4 @@ export const refineEmail = (payload) => api.post("/ai/refine", payload).then((r)
 export const analyzeJob = (jobDescription) => api.post("/ai/analyze-job", { jobDescription }).then((r) => r.data);
 export const parseLinkedIn = (text) => api.post("/ai/parse-linkedin", { text }).then((r) => r.data);
 export const generateDetailReply = (payload) => api.post("/ai/generate-detail-reply", payload).then((r) => r.data);
+export const dashboardChat = (question) => api.post("/ai/dashboard-chat", { question }).then((r) => r.data);
