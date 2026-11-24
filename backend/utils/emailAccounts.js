@@ -207,6 +207,7 @@ export function planScheduledAccounts(user, senderAccountId) {
   const skipped = [];
 
   for (const account of accounts) {
+    console.log(`[plan] account=${account.address} enabled=${account.enabled} hasPassword=${!!account.appPasswordEnc} scheduleAction=${account.scheduleAction} senderMatch=${String(account._id) === String(senderAccountId)}`);
     if (senderAccountId && String(account._id) === String(senderAccountId)) continue;
 
     if (account.enabled === false) {
