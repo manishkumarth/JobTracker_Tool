@@ -70,6 +70,7 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       const data = await listEmailAccounts();
       const list = data.accounts || [];
       setAccounts(list);
+      console.log("[AIEmailGenerator] Loaded accounts:", list.map((a) => `${a.address} (enabled=${a.enabled}, connected=${a.connected})`).join(", "));
       setAccountId((prev) => {
         // Always hold the id string — never the account object.
         const prevId = typeof prev === "string" ? prev : prev?._id || "";
@@ -101,7 +102,7 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       : true;
   // Only accounts that are enabled and have an App Password can send.
   const enabledAccounts = useMemo(
-    () => accounts.filter((a) => a.enabled && a.connected),
+    () => accounts.filter((a) => a.enabled !== false && a.connected),
     [accounts]
   );
   const selectedAccount = enabledAccounts.find((a) => a._id === accountId) || null;

@@ -688,6 +688,7 @@ router.post("/auto-send-multi", guardSlowSend, requireFeature("sendEmail"), requ
 
     // Only accounts that are enabled AND have an App Password may send.
     const enabledAccounts = usableEmailAccounts(user);
+    console.log(`[auto-send-multi] ${enabledAccounts.length} usable accounts out of ${(user.emailAccounts || []).length} total`);
     if (!enabledAccounts.length) {
       throw new HttpError(
         400,
