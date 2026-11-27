@@ -107,14 +107,6 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
   );
   const selectedAccount = enabledAccounts.find((a) => a._id === accountId) || null;
 
-  // Debug: log account status
-  useEffect(() => {
-    if (accounts.length > 0) {
-      console.log("[AIEmailGenerator] Accounts:", accounts.map((a) => `${a.address} enabled=${a.enabled} connected=${a.connected}`).join(", "));
-      console.log("[AIEmailGenerator] Enabled accounts:", enabledAccounts.length);
-    }
-  }, [accounts, enabledAccounts]);
-
   // Explain any account that was not scheduled (disabled / no App Password /
   // set to Send Now) so the outcome is never silent.
   const reportScheduleOutcome = (data) => {

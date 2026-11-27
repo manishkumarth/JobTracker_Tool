@@ -301,7 +301,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-router.get("/debug", authMiddleware, async (req, res) => {
+router.get("/debug", async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -323,3 +323,5 @@ router.get("/debug", authMiddleware, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+export default router;
