@@ -301,4 +301,25 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-export default router;
+router.get("/debug", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const accounts = user.emailAccounts || [];
+    res.json({
+      totalAccounts: accounts.length,
+      accounts: accounts.map((a) => ({
+        address: a.address,
+        enabled: a.enabled,
+        hasPassword: !!a.appPasswordEnc,
+        scheduleAction: a.scheduleAction,
+        scheduleTime: a.scheduleTime,
+        scheduleTimezone: a.scheduleTimezone,
+        isDefault: a.isDefault,
+        _id: String(a._id),
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
