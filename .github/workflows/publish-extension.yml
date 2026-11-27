@@ -118,6 +118,33 @@ jobs:
           echo "ZIP file listing:"
           unzip -Z1 jobtrackr-extension.zip | head -60
 
+      - name: Verify Chrome Web Store credentials
+        shell: bash
+        env:
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          response=$(curl -s -w '\n%{http_code}' https://oauth2.googleapis.com/token \
+            -d "client_id=$CLIENT_ID" \
+            -d "client_secret=$CLIENT_SECRET" \
+            -d "refresh_token=$REFRESH_TOKEN" \
+            -d "grant_type=refresh_token")
+
+          code=$(printf '%s\n' "$response" | tail -n1)
+          body=$(printf '%s\n' "$response" | sed '$d')
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Chrome Web Store OAuth credentials are invalid or expired (HTTP $code): $body"
+            echo "Regenerate CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN with https://github.com/fregante/chrome-webstore-upload-keys and update the GitHub secrets."
+            echo "If the OAuth consent screen is in 'Testing', refresh tokens expire after 7 days — set its publishing status to 'In production'."
+            exit 1
+          fi
+
+          echo "OAuth credentials are valid."
+
       - name: Upload to Chrome Web Store
         env:
           EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
@@ -160,7 +187,7 @@ jobs:
             --source jobtrackr-extension.zip \
             --extension-id "$EXTENSION_ID" \
             --publisher-id "$PUBLISHER_ID"; then
-            echo "::error::Chrome Web Store rejected the package. The most common cause is a manifest version that is not greater than the version already published (or already uploaded for review). Bump 'version' in extension/manifest.json and push again. Other causes: the item is mid-review, the package/manifest is invalid, or the developer account is not opted in to CRX uploads."
+            echo "::error::Chrome Web Store upload/publish failed. Check the log above for the exact API response. Common causes: (1) invalid/expired OAuth credentials — 'Invalid grant'; (2) manifest version not greater than the version already uploaded/published; (3) item is mid-review; (4) developer account not opted in to CRX uploads."
             exit 1
           fi
 
