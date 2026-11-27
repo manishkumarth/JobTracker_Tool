@@ -510,7 +510,9 @@ router.post("/auto-send", guardSlowSend, requireFeature("sendEmail"), requireFea
     const {
       applicationId, tone, length, allowResend = false, provider, model,
       mode = "send", accountId = null, scheduledAt, timezone = DEFAULT_TIMEZONE,
-      subject, body, scheduleOtherAccounts = false, manualResumeId,
+      // Application emails always schedule copies for the other accounts by
+      // default. Callers can opt out with scheduleOtherAccounts: false.
+      subject, body, scheduleOtherAccounts = true, manualResumeId,
     } = req.body;
     if (!applicationId) throw new HttpError(400, "applicationId is required");
     if (!["send", "schedule"].includes(mode)) throw new HttpError(400, "mode must be 'send' or 'schedule'");
@@ -688,7 +690,6 @@ router.post("/auto-send-multi", guardSlowSend, requireFeature("sendEmail"), requ
 
     // Only accounts that are enabled AND have an App Password may send.
     const enabledAccounts = usableEmailAccounts(user);
-    console.log(`[auto-send-multi] ${enabledAccounts.length} usable accounts out of ${(user.emailAccounts || []).length} total`);
     if (!enabledAccounts.length) {
       throw new HttpError(
         400,

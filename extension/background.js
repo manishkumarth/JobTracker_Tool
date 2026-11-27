@@ -355,7 +355,12 @@ async function saveJob({ text, url, manual = false }) {
           const auto = await api("/mail/auto-send", {
             method: "POST",
             token,
-            body: { applicationId: application._id },
+            body: {
+              applicationId: application._id,
+              // Send from the primary account now and schedule the same email
+              // from every other eligible account at its preferred time.
+              scheduleOtherAccounts: true,
+            },
           });
           emailSent = !!auto.emailSent;
           if (emailSent) markSent(hrEmail, application.jobTitle);

@@ -70,7 +70,6 @@ export default function AIEmailGenerator({ application, onSent, onScheduled }) {
       const data = await listEmailAccounts();
       const list = data.accounts || [];
       setAccounts(list);
-      console.log("[AIEmailGenerator] Loaded accounts:", list.map((a) => `${a.address} (enabled=${a.enabled}, connected=${a.connected})`).join(", "));
       setAccountId((prev) => {
         // Always hold the id string — never the account object.
         const prevId = typeof prev === "string" ? prev : prev?._id || "";
